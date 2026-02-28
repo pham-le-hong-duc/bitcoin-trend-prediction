@@ -1,0 +1,20 @@
+services:
+  streaming-consumer-minio:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: "streaming.consumer.minio"
+    command: python /app/src/streaming/consumer/minio/run.py
+    environment:
+      PYTHONUNBUFFERED: 1
+      PYTHONPATH: /app
+      TZ: UTC
+    volumes:
+      - ../src:/app/src
+    restart: unless-stopped
+
+networks:
+  default:
+    name: streaming
+    driver: bridge
+    external: true
