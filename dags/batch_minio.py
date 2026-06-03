@@ -15,43 +15,43 @@ from airflow.operators.python import PythonOperator
 
 def download_binance_futures_aggtrades(**kwargs):
     """Download Binance Futures aggregate trades data."""
-    from src.batch.minio.download.binance_futures_aggtrades import main
+    from src.batch.minio.download.binance.futures_aggtrades import main
     main()
 
 
 def download_binance_spot_aggtrades(**kwargs):
     """Download Binance Spot aggregate trades data."""
-    from src.batch.minio.download.binance_spot_aggtrades import main
+    from src.batch.minio.download.binance.spot_aggtrades import main
     main()
 
 
 def download_binance_futures_fundingrate(**kwargs):
     """Download Binance Futures funding rate data."""
-    from src.batch.minio.download.binance_futures_fundingrate import main
+    from src.batch.minio.download.binance.futures_fundingrate import main
     main()
 
 
 def download_binance_futures_indexpriceklines(**kwargs):
     """Download Binance Futures index price klines data."""
-    from src.batch.minio.download.binance_futures_indexpriceklines import main
+    from src.batch.minio.download.binance.futures_indexpriceklines import main
     main()
 
 
 def download_binance_futures_markpriceklines(**kwargs):
     """Download Binance Futures mark price klines data."""
-    from src.batch.minio.download.binance_futures_markpriceklines import main
+    from src.batch.minio.download.binance.futures_markpriceklines import main
     main()
 
 
 def download_binance_futures_premiumindexklines(**kwargs):
     """Download Binance Futures premium index klines data."""
-    from src.batch.minio.download.binance_futures_premiumindexklines import main
+    from src.batch.minio.download.binance.futures_premiumindexklines import main
     main()
 
 
 def download_binance_futures_metrics(**kwargs):
     """Download Binance Futures metrics data."""
-    from src.batch.minio.download.binance_futures_metrics import main
+    from src.batch.minio.download.binance.futures_metrics import main
     main()
 
 
@@ -59,49 +59,49 @@ def download_binance_futures_metrics(**kwargs):
 
 def restapi_binance_futures_aggtrades(**kwargs):
     """REST API: Fill gaps in Futures aggregate trades."""
-    from src.batch.minio.restapi.binance_futures_aggtrades import BinanceFuturesAggTrades
+    from src.batch.minio.restapi.binance.futures_aggtrades import BinanceFuturesAggTrades
     backfill = BinanceFuturesAggTrades(symbol="BTCUSDT")
     backfill.run()
 
 
 def restapi_binance_spot_aggtrades(**kwargs):
     """REST API: Fill gaps in Spot aggregate trades."""
-    from src.batch.minio.restapi.binance_spot_aggtrades import BinanceSpotAggTrades
+    from src.batch.minio.restapi.binance.spot_aggtrades import BinanceSpotAggTrades
     backfill = BinanceSpotAggTrades(symbol="BTCUSDT")
     backfill.run()
 
 
 def restapi_binance_futures_fundingrate(**kwargs):
     """REST API: Fill gaps in Futures funding rate."""
-    from src.batch.minio.restapi.binance_futures_fundingrate import BinanceFuturesFundingRate
+    from src.batch.minio.restapi.binance.futures_fundingrate import BinanceFuturesFundingRate
     backfill = BinanceFuturesFundingRate(symbol="BTCUSDT")
     backfill.run()
 
 
 def restapi_binance_futures_metrics(**kwargs):
     """REST API: Fill gaps in Futures metrics."""
-    from src.batch.minio.restapi.binance_futures_metrics import BinanceFuturesMetrics
+    from src.batch.minio.restapi.binance.futures_metrics import BinanceFuturesMetrics
     backfill = BinanceFuturesMetrics(symbol="BTCUSDT")
     backfill.run()
 
 
 def restapi_binance_futures_indexpriceklines(**kwargs):
     """REST API: Fill gaps in Futures index price klines."""
-    from src.batch.minio.restapi.binance_futures_indexpriceklines import BinanceFuturesIndexPriceKlines
+    from src.batch.minio.restapi.binance.futures_indexpriceklines import BinanceFuturesIndexPriceKlines
     backfill = BinanceFuturesIndexPriceKlines(symbol="BTCUSDT", interval="1m")
     backfill.run()
 
 
 def restapi_binance_futures_markpriceklines(**kwargs):
     """REST API: Fill gaps in Futures mark price klines."""
-    from src.batch.minio.restapi.binance_futures_markpriceklines import BinanceFuturesMarkPriceKlines
+    from src.batch.minio.restapi.binance.futures_markpriceklines import BinanceFuturesMarkPriceKlines
     backfill = BinanceFuturesMarkPriceKlines(symbol="BTCUSDT", interval="1m")
     backfill.run()
 
 
 def restapi_binance_futures_premiumindexklines(**kwargs):
     """REST API: Fill gaps in Futures premium index klines."""
-    from src.batch.minio.restapi.binance_futures_premiumindexklines import BinanceFuturesPremiumIndexKlines
+    from src.batch.minio.restapi.binance.futures_premiumindexklines import BinanceFuturesPremiumIndexKlines
     backfill = BinanceFuturesPremiumIndexKlines(symbol="BTCUSDT", interval="1m")
     backfill.run()
 

@@ -1,0 +1,1 @@
+"""Binance MinIO consumer package."""

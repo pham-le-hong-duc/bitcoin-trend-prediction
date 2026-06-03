@@ -11,6 +11,8 @@ psycopg2-binary
 polars
 pyarrow
 pandas
+numpy
+zstandard
 
 # Storage
 minio
@@ -22,6 +24,13 @@ lz4
 # Binance API
 binance-sdk-derivatives-trading-usds-futures
 binance-sdk-spot
+
+# Reddit producer / NLP
+fasttext-wheel
+torch
+transformers
+emoji
+httpx
 
 # Utilities
 requests
