@@ -6,17 +6,22 @@ import time
 MINIO_ENDPOINT = "minio:9000"
 MINIO_ACCESS_KEY = "admin"
 MINIO_SECRET_KEY = "password"
-BUCKET_NAME = "binance"
 
-FOLDER_STRUCTURE = [
-    "futures/um/monthly/fundingRate/BTCUSDT/",
-    "futures/um/daily/aggTrades/BTCUSDT/",
-    "futures/um/daily/indexPriceKlines/BTCUSDT/1m/",
-    "futures/um/daily/markPriceKlines/BTCUSDT/1m/",
-    "futures/um/daily/premiumIndexKlines/BTCUSDT/1m/",
-    "futures/um/daily/metrics/BTCUSDT/",
-    "spot/daily/aggTrades/BTCUSDT/",
-]
+BUCKETS = {
+    "binance": [
+        "futures/um/monthly/fundingRate/BTCUSDT/",
+        "futures/um/daily/aggTrades/BTCUSDT/",
+        "futures/um/daily/indexPriceKlines/BTCUSDT/1m/",
+        "futures/um/daily/markPriceKlines/BTCUSDT/1m/",
+        "futures/um/daily/premiumIndexKlines/BTCUSDT/1m/",
+        "futures/um/daily/metrics/BTCUSDT/",
+        "spot/daily/aggTrades/BTCUSDT/",
+    ],
+    "reddit": [
+        "comments/",
+        "submissions/",
+    ],
+}
 
 def wait_for_minio(client, max_retries=30):
     for i in range(max_retries):
@@ -65,10 +70,10 @@ def main():
         print("MinIO is not ready", file=sys.stderr)
         sys.exit(1)
     
-    if not create_bucket(client, BUCKET_NAME):
-        sys.exit(1)
-    
-    create_folder_structure(client, BUCKET_NAME, FOLDER_STRUCTURE)
+    for bucket_name, folders in BUCKETS.items():
+        if not create_bucket(client, bucket_name):
+            sys.exit(1)
+        create_folder_structure(client, bucket_name, folders)
     
     print("MINIO INITIALIZATION COMPLETED!")
 

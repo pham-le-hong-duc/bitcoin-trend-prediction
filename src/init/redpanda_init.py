@@ -75,6 +75,36 @@ TOPICS = [
             "compression.type": "lz4",
             "cleanup.policy": "delete"
         }
+    },
+    {
+        "name": "reddit-comments",
+        "partitions": 3,
+        "replication": 1,
+        "config": {
+            "retention.ms": "2592000000",
+            "compression.type": "lz4",
+            "cleanup.policy": "delete"
+        }
+    },
+    {
+        "name": "reddit-submissions",
+        "partitions": 3,
+        "replication": 1,
+        "config": {
+            "retention.ms": "2592000000",
+            "compression.type": "lz4",
+            "cleanup.policy": "delete"
+        }
+    },
+    {
+        "name": "reddit-status",
+        "partitions": 1,
+        "replication": 1,
+        "config": {
+            "retention.ms": "2592000000",
+            "compression.type": "lz4",
+            "cleanup.policy": "delete"
+        }
     }
 ]
 

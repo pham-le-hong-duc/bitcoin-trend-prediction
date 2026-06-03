@@ -1,14 +1,29 @@
 services:
-  streaming-producer:
+  streaming-producer-binance:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    container_name: "streaming.producer"
-    command: python /app/src/streaming/producer/run.py
+    container_name: "streaming.producer.binance"
+    command: python -m src.streaming.producer.binance.run
     environment:
       PYTHONUNBUFFERED: 1
+      PYTHONPATH: /app
       SYMBOL: BTCUSDT
       BOOTSTRAP_SERVERS: redpanda:9092
+      TZ: UTC
+    volumes:
+      - ../src:/app/src
+    restart: unless-stopped
+
+  streaming-producer-reddit:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: "streaming.producer.reddit"
+    command: python -m src.streaming.producer.reddit.run
+    environment:
+      PYTHONUNBUFFERED: 1
+      PYTHONPATH: /app
       TZ: UTC
     volumes:
       - ../src:/app/src

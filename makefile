@@ -31,17 +31,17 @@ infra-up:
 # Producer targets
 producer-up:
 	@echo "========================================================="
-	@echo "STEP 2: Starting producer..."
+	@echo "STEP 2: Starting producers..."
 	@echo "========================================================="
-	docker-compose -f docker/docker-compose.infrastructure.yml -f docker/docker-compose.streaming.producer.yml up -d streaming-producer
-	@echo "[OK] Producer started!"
+	docker-compose -f docker/docker-compose.infrastructure.yml -f docker/docker-compose.streaming.producer.yml up -d streaming-producer-binance streaming-producer-reddit
+	@echo "[OK] Producers started!"
 
 # MinIO consumer targets
 consumer.minio-up:
 	@echo "========================================================="
 	@echo "STEP 3: Starting MinIO consumer..."
 	@echo "========================================================="
-	docker-compose -f docker/docker-compose.infrastructure.yml -f docker/docker-compose.streaming.producer.yml -f docker/docker-compose.streaming.consumer.minio.yml up -d streaming-consumer-minio
+	docker-compose -f docker/docker-compose.infrastructure.yml -f docker/docker-compose.streaming.producer.yml -f docker/docker-compose.streaming.consumer.minio.yml up -d streaming-consumer-minio-binance streaming-consumer-minio-reddit
 	@echo "[OK] MinIO consumer started!"
 
 # Airflow DAG targets
