@@ -1,8 +1,6 @@
 services:
   streaming-consumer-timescaledb-dashboard:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
+    image: thesis-pipeline:latest
     container_name: "streaming.consumer.timescaledb.dashboard"
     command: python -m src.streaming.consumer.timescaledb.dashboard.run
     environment:

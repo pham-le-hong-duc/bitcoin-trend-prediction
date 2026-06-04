@@ -2,12 +2,42 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import datetime, timezone
+import re
 import unicodedata
 
 import polars as pl
-from wordcloud import STOPWORDS
+try:
+    from nltk.corpus import stopwords as nltk_stopwords
+except ImportError:
+    nltk_stopwords = None
 
 from src.batch.timescaledb.base import HistoricalSource, HistoricalTimescaleBatch, INTERVAL_TO_MS
+
+
+URL_PATTERN = re.compile(r"https?://\S+|www\.\S+")
+CUSTOM_STOPWORDS = {
+    "https",
+    "http",
+    "utm",
+    "x200b",
+    "xpost",
+    "rbitcoin",
+    "im",
+    "i'm",
+    "ive",
+    "i've",
+    "dont",
+    "don't",
+    "isnt",
+    "isn't",
+    "thats",
+    "that's",
+    "theres",
+    "there's",
+    "youre",
+    "you're",
+}
+SHORT_TOKEN_ALLOWLIST = {"ai", "us", "uk", "eu"}
 
 
 class SentimentBatch(HistoricalTimescaleBatch):
@@ -33,7 +63,18 @@ class SentimentBatch(HistoricalTimescaleBatch):
             base_start_date=datetime(2024, 1, 1, tzinfo=timezone.utc),
             minio_bucket="reddit",
         )
-        self.stopwords = set(STOPWORDS)
+        try:
+            if nltk_stopwords is None:
+                raise ImportError
+            self.stopwords = set(nltk_stopwords.words("english"))
+        except (ImportError, LookupError):
+            # Keep the batch runnable even if the NLTK corpus has not been downloaded yet.
+            self.stopwords = {
+                "a", "an", "and", "are", "as", "at", "be", "but", "by", "for", "from",
+                "if", "in", "into", "is", "it", "no", "not", "of", "on", "or", "such",
+                "that", "the", "their", "then", "there", "these", "they", "this", "to",
+                "was", "will", "with",
+            }
 
     def table_name(self, interval: str) -> str:
         return f"sentiment_{interval}"
@@ -79,10 +120,15 @@ class SentimentBatch(HistoricalTimescaleBatch):
         )
 
     def _tokenize(self, text: str) -> list[str]:
-        lowered = text.lower()
+        lowered = (
+            URL_PATTERN.sub(" ", text.lower())
+            .replace("’", "'")
+            .replace("‘", "'")
+            .replace("\u200b", " ")
+        )
         cleaned_chars = []
         for char in lowered:
-            if unicodedata.category(char).startswith("P"):
+            if char != "'" and unicodedata.category(char).startswith("P"):
                 cleaned_chars.append(" ")
             else:
                 cleaned_chars.append(char)
@@ -90,6 +136,14 @@ class SentimentBatch(HistoricalTimescaleBatch):
         tokens = []
         for token in "".join(cleaned_chars).split():
             if token in self.stopwords:
+                continue
+            if token in CUSTOM_STOPWORDS:
+                continue
+            if token.isdigit():
+                continue
+            if len(token) == 1:
+                continue
+            if len(token) == 2 and token not in SHORT_TOKEN_ALLOWLIST:
                 continue
             tokens.append(token)
         return tokens
@@ -142,8 +196,7 @@ class SentimentBatch(HistoricalTimescaleBatch):
             top_words = dict(
                 sorted(
                     ((word, count) for word, count in frequency.items() if count >= 2),
-                    key=lambda item: item[1],
-                    reverse=True,
+                    key=lambda item: (-item[1], item[0]),
                 )[:100]
             )
 

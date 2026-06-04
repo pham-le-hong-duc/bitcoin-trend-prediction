@@ -1,8 +1,6 @@
 services:
   streaming-consumer-minio-binance:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
+    image: thesis-pipeline:latest
     container_name: "streaming.consumer.minio.binance"
     command: python -m src.streaming.consumer.minio.binance.run
     environment:
@@ -14,9 +12,7 @@ services:
     restart: unless-stopped
 
   streaming-consumer-minio-reddit:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
+    image: thesis-pipeline:latest
     container_name: "streaming.consumer.minio.reddit"
     command: python -m src.streaming.consumer.minio.reddit.run
     environment:

@@ -172,8 +172,9 @@ async def main():
             # Calculate wake latency (how late we woke up after target time)
             wake_latency = (datetime.now(timezone.utc) - next_close_time).total_seconds()
             
-            kline_time = next_close_time.replace(second=0, microsecond=0)
-            expected_open_time = int(kline_time.timestamp() * 1000)
+            open_time = next_close_time.replace(second=0, microsecond=0)
+            close_boundary_time = open_time + timedelta(minutes=1)
+            expected_open_time = int(open_time.timestamp() * 1000)
             
             data, requests, api_latency = await poll_until_new_data(
                 expected_open_time=expected_open_time,
@@ -182,7 +183,10 @@ async def main():
             
             if data:
                 producer.send(data)
-                logger.info(f"[{kline_time.strftime('%H:%M:%S')}] | Wake:{wake_latency:.3f}s | API:{api_latency:.3f}s")
+                logger.info(
+                    f"[{close_boundary_time.strftime('%H:%M:%S')}] | "
+                    f"Wake:{wake_latency:.3f}s | API:{api_latency:.3f}s | Requests:{requests}"
+                )
             else:
                 logger.warning(f"Failed to get kline after {requests} requests")
             

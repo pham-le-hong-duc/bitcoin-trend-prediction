@@ -75,6 +75,9 @@ class HistoricalTimescaleBatch(ABC):
     ) -> pl.DataFrame | None:
         raise NotImplementedError
 
+    def normalize_historical_frame(self, source_name: str, df: pl.DataFrame) -> pl.DataFrame:
+        return df
+
     def close(self) -> None:
         self._ts_client.close()
 
@@ -193,7 +196,7 @@ class HistoricalTimescaleBatch(ABC):
             path = self._source_path(source, target_date)
             df = self._minio_client.read_parquet(path)
             if df is not None and not df.is_empty():
-                frames.append(df)
+                frames.append(self.normalize_historical_frame(source.name, df))
 
         if not frames:
             return None
@@ -236,8 +239,9 @@ class HistoricalTimescaleBatch(ABC):
 
                 rows = self._ts_client.upsert_dataframe(
                     result_df,
-                    self._full_table_name(interval),
+                    self.table_name(interval),
                     key_column=self.time_column,
+                    schema_name=self.schema_name,
                 )
                 print(f"  {date_str}: upserted {rows} rows")
 

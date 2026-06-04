@@ -214,20 +214,19 @@ def transform_metrics(api1, api2, api3, api4, api5):
         return None
 
 
-async def poll_until_new_metrics(expected_time, poll_duration=60):
+async def poll_until_new_metrics(expected_time):
     """
-    Poll 5 APIs in parallel until all data is ready
+    Poll 5 APIs in parallel until a sufficiently fresh bucket is available.
     
     Returns:
         tuple: (data, request_count, latency)
     """
     start_time = datetime.now(timezone.utc)
     request_count = 0
-    
-    while (datetime.now(timezone.utc) - start_time).total_seconds() < poll_duration:
+
+    while True:
         request_count += 1
-        request_start = datetime.now(timezone.utc)
-        
+
         try:
             results = await asyncio.gather(
                 fetch_open_interest(),
@@ -255,17 +254,16 @@ async def poll_until_new_metrics(expected_time, poll_duration=60):
             if api1 and isinstance(api1, dict) and 'timestamp' in api1:
                 metrics_time = int(api1['timestamp'])
 
-                # Wait specifically for the just-closed 5m bucket.
-                if expected_time <= metrics_time < expected_time + 300000:
+                # Accept the first bucket that is at least as new as the one we expect.
+                if metrics_time >= expected_time:
                     latency = (datetime.now(timezone.utc) - start_time).total_seconds()
                     transformed = transform_metrics(api1, api2, api3, api4, api5)
-                    return transformed, request_count, latency
+                    return transformed, request_count, latency, metrics_time
         
         except Exception as e:
             logger.error(f"Error polling metrics: {e}")
-    
-    logger.warning(f"Timeout after {poll_duration}s, {request_count} requests")
-    return None, request_count, poll_duration
+
+        await asyncio.sleep(1)
 
 
 async def main():
@@ -304,18 +302,18 @@ async def main():
                 # The API timestamp represents the close time of the 5m bucket.
                 expected_time = int((next_close + timedelta(milliseconds=1)).timestamp() * 1000)
                 
-                data, requests, api_latency = await poll_until_new_metrics(
+                data, requests, api_latency, metrics_time = await poll_until_new_metrics(
                     expected_time=expected_time,
-                    poll_duration=60
                 )
-                
-                if data:
-                    producer.send(data)
-                    metrics_time = next_close.replace(second=0, microsecond=0)
-                    logger.info(f"[{metrics_time.strftime('%H:%M:%S')}] | Wake:{wake_latency:.3f}s | API:{api_latency:.3f}s")
-                else:
-                    logger.warning(f"Failed to get metrics after {requests} requests")
-            
+
+                producer.send(data)
+                actual_bucket_time = datetime.fromtimestamp(
+                    metrics_time / 1000, tz=timezone.utc
+                )
+                logger.info(
+                    f"[{actual_bucket_time.strftime('%H:%M:%S')}] | "
+                    f"Wake:{wake_latency:.3f}s | API:{api_latency:.3f}s | Requests:{requests}"
+                )
             except KeyboardInterrupt:
                 logger.info("Shutting down...")
                 break

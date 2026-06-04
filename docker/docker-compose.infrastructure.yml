@@ -99,9 +99,7 @@ services:
       retries: 5
 
   airflow-webserver:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
+    image: thesis-pipeline:latest
     container_name: airflow-webserver
     command: airflow webserver
     ports:
@@ -135,9 +133,7 @@ services:
     restart: unless-stopped
 
   airflow-scheduler:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
+    image: thesis-pipeline:latest
     container_name: airflow-scheduler
     command: airflow scheduler
     environment:
@@ -172,9 +168,7 @@ services:
   # INITIALIZATION CONTAINERS
   # ========================================
   redpanda-init:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
+    image: thesis-pipeline:latest
     container_name: redpanda-init
     command: python -m src.init.redpanda
     environment:
@@ -185,9 +179,7 @@ services:
     restart: "no"
 
   minio-init:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
+    image: thesis-pipeline:latest
     container_name: minio-init
     command: python -m src.init.minio
     environment:
@@ -198,9 +190,7 @@ services:
     restart: "no"
 
   timescaledb-init:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
+    image: thesis-pipeline:latest
     container_name: timescaledb-init
     command: python -m src.init.timescaledb
     environment:
@@ -216,9 +206,7 @@ services:
     restart: "no"
 
   airflow-init:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
+    image: thesis-pipeline:latest
     container_name: airflow-init
     command: python -m src.init.airflow
     environment:

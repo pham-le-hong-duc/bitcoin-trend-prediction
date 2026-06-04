@@ -8,6 +8,21 @@ from src.batch.timescaledb.base import HistoricalSource, HistoricalTimescaleBatc
 
 
 class FuturesIndexPriceKlinesBatch(HistoricalTimescaleBatch):
+    KLINE_COLUMNS = [
+        "open_time",
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+        "close_time",
+        "quote_volume",
+        "count",
+        "taker_buy_volume",
+        "taker_buy_quote_volume",
+        "ignore",
+    ]
+
     def __init__(self) -> None:
         super().__init__(
             schema_name="dashboard",
@@ -26,13 +41,34 @@ class FuturesIndexPriceKlinesBatch(HistoricalTimescaleBatch):
     def table_name(self, interval: str) -> str:
         return f"futures_index_price_klines_{interval}"
 
+    def _normalize_historical_df(self, df: pl.DataFrame) -> pl.DataFrame:
+        if df.is_empty():
+            return df
+
+        if "open_time" in df.columns and "close_time" in df.columns:
+            return df
+
+        if df.width != len(self.KLINE_COLUMNS):
+            raise ValueError(
+                "Unexpected historical kline schema: "
+                f"expected {len(self.KLINE_COLUMNS)} columns, got {df.width} "
+                f"({df.columns})"
+            )
+
+        return df.rename(
+            {current: expected for current, expected in zip(df.columns, self.KLINE_COLUMNS)}
+        )
+
+    def normalize_historical_frame(self, source_name: str, df: pl.DataFrame) -> pl.DataFrame:
+        return self._normalize_historical_df(df)
+
     def aggregate_timestamps(
         self,
         interval: str,
         timestamps: list[int],
         historical_frames: dict[str, pl.DataFrame],
     ) -> pl.DataFrame | None:
-        df = historical_frames["index_price_klines"]
+        df = self._normalize_historical_df(historical_frames["index_price_klines"])
         if df.is_empty():
             return None
 
