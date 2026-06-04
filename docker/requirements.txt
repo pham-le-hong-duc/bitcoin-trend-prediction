@@ -31,6 +31,7 @@ torch
 transformers
 emoji
 httpx
+wordcloud
 
 # Utilities
 requests

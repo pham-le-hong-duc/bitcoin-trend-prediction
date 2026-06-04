@@ -254,9 +254,9 @@ async def poll_until_new_metrics(expected_time, poll_duration=60):
             # APIs return dict, not object
             if api1 and isinstance(api1, dict) and 'timestamp' in api1:
                 metrics_time = int(api1['timestamp'])
-                
-                # Accept data from past 10 minutes (flexible for API delay)
-                if expected_time - 600000 <= metrics_time < expected_time + 300000:
+
+                # Wait specifically for the just-closed 5m bucket.
+                if expected_time <= metrics_time < expected_time + 300000:
                     latency = (datetime.now(timezone.utc) - start_time).total_seconds()
                     transformed = transform_metrics(api1, api2, api3, api4, api5)
                     return transformed, request_count, latency
@@ -275,30 +275,34 @@ async def main():
             try:
                 next_close = get_next_5min_time()
                 
-                # Wake up 15 seconds early for long sleep periods (5min cycle has more drift)
-                early_wake_time = next_close - timedelta(seconds=15)
+                # Wake up 20 seconds early for long sleep periods (5min cycle has more drift)
+                early_wake_time = next_close - timedelta(seconds=20)
                 early_sleep = (early_wake_time - datetime.now(timezone.utc)).total_seconds()
                 
                 if early_sleep > 0:
                     await asyncio.sleep(early_sleep)
                 
-                # Multi-stage sleep for better precision
-                # Stage 1: Sleep in 100ms intervals until 1s before target
+                # Multi-stage sleep for better precision with lower CPU churn.
+                while (next_close - datetime.now(timezone.utc)).total_seconds() > 10:
+                    await asyncio.sleep(1)
+
                 while (next_close - datetime.now(timezone.utc)).total_seconds() > 1:
                     await asyncio.sleep(0.1)
-                
-                # Stage 2: Sleep in 10ms intervals for last 1s
-                while (next_close - datetime.now(timezone.utc)).total_seconds() > 0.01:
+
+                while (next_close - datetime.now(timezone.utc)).total_seconds() > 0.1:
                     await asyncio.sleep(0.01)
-                
-                # Stage 3: Sleep in 1ms intervals for final precision
-                while datetime.now(timezone.utc) < next_close:
+
+                while (next_close - datetime.now(timezone.utc)).total_seconds() > 0.01:
                     await asyncio.sleep(0.001)
+
+                while datetime.now(timezone.utc) < next_close:
+                    await asyncio.sleep(0.0001)
                 
                 # Calculate wake latency (how late we woke up after target time)
                 wake_latency = (datetime.now(timezone.utc) - next_close).total_seconds()
                 
-                expected_time = int((next_close - timedelta(minutes=4, seconds=59, microseconds=999000)).timestamp() * 1000)
+                # The API timestamp represents the close time of the 5m bucket.
+                expected_time = int((next_close + timedelta(milliseconds=1)).timestamp() * 1000)
                 
                 data, requests, api_latency = await poll_until_new_metrics(
                     expected_time=expected_time,

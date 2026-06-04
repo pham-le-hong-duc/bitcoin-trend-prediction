@@ -36,6 +36,7 @@ class Consumer:
                  bootstrap_servers='localhost:19092',
                  group_id=None,
                  batch_size=100,
+                 batch_timeout=12,
                  enable_batching=True,
                  timestamp_unit='ms',
                  minio_bucket='binance'):
@@ -53,6 +54,7 @@ class Consumer:
             bootstrap_servers: Redpanda broker addresses
             group_id: Consumer group ID (default: {topic}-consumer-group)
             batch_size: Number of messages to batch before writing (default: 100)
+            batch_timeout: Maximum seconds to wait before flushing a partial batch
             enable_batching: Enable batching (False = write immediately, for low-volume streams)
             timestamp_unit: Integer timestamp unit, either 'ms' or 's'
             minio_bucket: MinIO bucket name
@@ -111,7 +113,7 @@ class Consumer:
         # Stats
         self.total_consumed = 0
         self.total_written = 0
-        self.batch_timeout = 12  # seconds
+        self.batch_timeout = batch_timeout
         self.last_flush_time = time.time()
 
     def _align_schema(self, df):

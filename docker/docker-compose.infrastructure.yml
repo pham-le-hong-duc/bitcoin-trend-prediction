@@ -176,7 +176,7 @@ services:
       context: ..
       dockerfile: docker/Dockerfile
     container_name: redpanda-init
-    command: python /app/src/init/redpanda_init.py
+    command: python -m src.init.redpanda
     environment:
       - TZ=UTC
     depends_on:
@@ -189,11 +189,29 @@ services:
       context: ..
       dockerfile: docker/Dockerfile
     container_name: minio-init
-    command: python /app/src/init/minio_init.py
+    command: python -m src.init.minio
     environment:
       - TZ=UTC
     depends_on:
       minio:
+        condition: service_healthy
+    restart: "no"
+
+  timescaledb-init:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: timescaledb-init
+    command: python -m src.init.timescaledb
+    environment:
+      - TIMESCALE_HOST=timescaledb
+      - TIMESCALE_PORT=5432
+      - TIMESCALE_DB=base
+      - TIMESCALE_USER=admin
+      - TIMESCALE_PASSWORD=password
+      - TZ=UTC
+    depends_on:
+      timescaledb:
         condition: service_healthy
     restart: "no"
 
@@ -202,7 +220,7 @@ services:
       context: ..
       dockerfile: docker/Dockerfile
     container_name: airflow-init
-    command: python /app/src/init/airflow_init.py
+    command: python -m src.init.airflow
     environment:
       - AIRFLOW__CORE__EXECUTOR=LocalExecutor
       - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
