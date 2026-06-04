@@ -279,7 +279,27 @@ class TimescaleDBClient:
     def _adapt_value(self, value):
         """Adapt Python values for psycopg2, including JSON-like payloads."""
         if isinstance(value, (dict, list)):
-            return Json(value)
+            return Json(self._clean_json_value(value))
+        return value
+
+    def _clean_json_value(self, value):
+        """Recursively drop null-like expansion artifacts before JSON upsert."""
+        if isinstance(value, dict):
+            cleaned = {}
+            for key, item in value.items():
+                if item is None:
+                    continue
+                cleaned[key] = self._clean_json_value(item)
+            return cleaned
+
+        if isinstance(value, list):
+            cleaned = []
+            for item in value:
+                if item is None:
+                    continue
+                cleaned.append(self._clean_json_value(item))
+            return cleaned
+
         return value
 
     def close(self) -> None:

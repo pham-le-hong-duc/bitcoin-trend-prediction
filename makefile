@@ -17,17 +17,17 @@ build:
 	@echo "========================================================="
 	@echo "STEP 0: Building Docker images..."
 	@echo "========================================================="
-	@echo "Building custom application image..."
+	@echo "Building shared application image: thesis-pipeline:latest"
 	@echo "Note: Docker will cache layers for faster rebuilds"
-	docker-compose -f docker/docker-compose.infrastructure.yml build
-	@echo "[OK] Docker images built successfully!"
+	docker build -t thesis-pipeline:latest -f docker/Dockerfile .
+	@echo "[OK] Shared application image built successfully!"
 
 # Infrastructure targets
 infra-up:
 	@echo "========================================================="
 	@echo "STEP 1: Starting infrastructure..."
 	@echo "========================================================="
-	docker-compose -f docker/docker-compose.infrastructure.yml up -d
+	docker-compose -f docker/docker-compose.infrastructure.yml up -d --force-recreate
 	@echo "[OK] Infrastructure started!"
 
 
@@ -37,7 +37,7 @@ consumer.minio-up:
 	@echo "========================================================="
 	@echo "STEP 2: Starting MinIO consumer..."
 	@echo "========================================================="
-	docker-compose -f docker/docker-compose.infrastructure.yml -f docker/docker-compose.streaming.producer.yml -f docker/docker-compose.streaming.consumer.minio.yml up -d streaming-consumer-minio-binance streaming-consumer-minio-reddit
+	docker-compose -f docker/docker-compose.infrastructure.yml -f docker/docker-compose.streaming.consumer.minio.yml up -d --force-recreate streaming-consumer-minio-binance streaming-consumer-minio-reddit
 	@echo "[OK] MinIO consumer started!"
 
 # Producer targets
@@ -45,7 +45,7 @@ producer-up:
 	@echo "========================================================="
 	@echo "STEP 3: Starting producers..."
 	@echo "========================================================="
-	docker-compose -f docker/docker-compose.infrastructure.yml -f docker/docker-compose.streaming.producer.yml up -d streaming-producer-binance streaming-producer-reddit
+	docker-compose -f docker/docker-compose.infrastructure.yml -f docker/docker-compose.streaming.producer.yml up -d --force-recreate streaming-producer-binance streaming-producer-reddit
 	docker-compose -f docker/docker-compose.infrastructure.yml exec -T airflow-webserver python -m src.wait.reddit_status
 	@echo "[OK] Producers started!"
 	
@@ -63,7 +63,7 @@ consumer.timescaledb-up:
 	@echo "========================================================="
 	@echo "STEP 5: Starting TimescaleDB consumer..."
 	@echo "========================================================="
-	docker-compose -f docker/docker-compose.infrastructure.yml -f docker/docker-compose.streaming.consumer.timescaledb.yml up -d streaming-consumer-timescaledb-dashboard
+	docker-compose -f docker/docker-compose.infrastructure.yml -f docker/docker-compose.streaming.consumer.timescaledb.yml up -d --force-recreate streaming-consumer-timescaledb-dashboard
 	@echo "[OK] TimescaleDB consumer started!"
 
 # Airflow TimescaleDB DAG targets

@@ -12,12 +12,42 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import datetime, timezone
+import re
 import unicodedata
 
 import polars as pl
-from wordcloud import STOPWORDS
+try:
+    from nltk.corpus import stopwords as nltk_stopwords
+except ImportError:
+    nltk_stopwords = None
 
 from src.streaming.consumer.timescaledb.consumer import Consumer
+
+
+URL_PATTERN = re.compile(r"https?://\S+|www\.\S+")
+CUSTOM_STOPWORDS = {
+    "https",
+    "http",
+    "utm",
+    "x200b",
+    "xpost",
+    "rbitcoin",
+    "im",
+    "i'm",
+    "ive",
+    "i've",
+    "dont",
+    "don't",
+    "isnt",
+    "isn't",
+    "thats",
+    "that's",
+    "theres",
+    "there's",
+    "youre",
+    "you're",
+}
+SHORT_TOKEN_ALLOWLIST = {"ai", "us", "uk", "eu"}
 
 
 class SentimentConsumer(Consumer):
@@ -25,7 +55,18 @@ class SentimentConsumer(Consumer):
 
     def __init__(self, **kwargs):
         self.pending_status_boundaries = set()
-        self.stopwords = set(STOPWORDS)
+        try:
+            if nltk_stopwords is None:
+                raise ImportError
+            self.stopwords = set(nltk_stopwords.words("english"))
+        except (ImportError, LookupError):
+            # Keep the realtime consumer runnable even if the NLTK corpus has not been downloaded yet.
+            self.stopwords = {
+                "a", "an", "and", "are", "as", "at", "be", "but", "by", "for", "from",
+                "if", "in", "into", "is", "it", "no", "not", "of", "on", "or", "such",
+                "that", "the", "their", "then", "there", "these", "they", "this", "to",
+                "was", "will", "with",
+            }
         super().__init__(
             topics=["reddit-submissions", "reddit-comments", "reddit-status"],
             data_type="reddit-sentiment",
@@ -110,8 +151,7 @@ class SentimentConsumer(Consumer):
 
         filtered = sorted(
             {word: count for word, count in freq_counter.items() if count >= 2}.items(),
-            key=lambda item: item[1],
-            reverse=True,
+            key=lambda item: (-item[1], item[0]),
         )[:100]
 
         word_frequency = {word: count for word, count in filtered}
@@ -173,14 +213,28 @@ class SentimentConsumer(Consumer):
         if not text:
             return []
 
+        normalized = (
+            URL_PATTERN.sub(" ", text.lower())
+            .replace("’", "'")
+            .replace("‘", "'")
+            .replace("\u200b", " ")
+        )
         cleaned_tokens = []
-        for raw_token in text.lower().split():
+        for raw_token in normalized.split():
             token = "".join(
-                ch for ch in raw_token if not unicodedata.category(ch).startswith("P")
+                ch for ch in raw_token if ch == "'" or not unicodedata.category(ch).startswith("P")
             ).strip()
             if not token:
                 continue
             if token in self.stopwords:
+                continue
+            if token in CUSTOM_STOPWORDS:
+                continue
+            if token.isdigit():
+                continue
+            if len(token) == 1:
+                continue
+            if len(token) == 2 and token not in SHORT_TOKEN_ALLOWLIST:
                 continue
             cleaned_tokens.append(token)
         return cleaned_tokens

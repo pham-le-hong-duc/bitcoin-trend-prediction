@@ -14,7 +14,8 @@ COPY docker/requirements.txt .
 # Install Python dependencies with caching
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --upgrade pip && \
-    pip install -r requirements.txt
+    pip install -r requirements.txt && \
+    python -m nltk.downloader stopwords
 
 # Copy application code (this layer rebuilds only when source code changes)
 COPY src/ ./src/

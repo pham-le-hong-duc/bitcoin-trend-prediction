@@ -183,7 +183,10 @@ async def main():
           
           if data:
             producer.send(data)
-            logger.info(f"[{funding_time.strftime('%H:%M:%S')}] | Wake:{wake_latency:.3f}s | API:{api_latency:.3f}s")
+            logger.info(
+              f"[{funding_time.strftime('%H:%M:%S')}] | "
+              f"Wake:{wake_latency:.3f}s | API:{api_latency:.3f}s | Requests:{requests}"
+            )
           else:
             logger.warning(f"Failed to get funding rate after {requests} requests")
           
