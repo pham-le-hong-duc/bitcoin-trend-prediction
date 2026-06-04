@@ -147,20 +147,31 @@ async def main():
           funding_time = (next_close_time + timedelta(seconds=1)).replace(second=0, microsecond=0)
           expected_funding_time = int(funding_time.timestamp() * 1000)
           
-          # Wake up 60 seconds early for very long sleep periods (8h cycle has significant drift)
-          early_wake_time = next_close_time - timedelta(seconds=60)
+          # Wake up 20 minutes early for very long sleep periods (8h cycle has significant drift)
+          early_wake_time = next_close_time - timedelta(minutes=20)
           early_sleep = (early_wake_time - datetime.now(timezone.utc)).total_seconds()
           
           if early_sleep > 0:
             await asyncio.sleep(early_sleep)
           
-          # Sleep in 10ms intervals until 10ms before target
-          while (next_close_time - datetime.now(timezone.utc)).total_seconds() > 0.01:
+          # Multi-stage sleep for better precision with lower CPU churn.
+          while (next_close_time - datetime.now(timezone.utc)).total_seconds() > 60:
+            await asyncio.sleep(10)
+
+          while (next_close_time - datetime.now(timezone.utc)).total_seconds() > 10:
+            await asyncio.sleep(1)
+
+          while (next_close_time - datetime.now(timezone.utc)).total_seconds() > 1:
+            await asyncio.sleep(0.1)
+
+          while (next_close_time - datetime.now(timezone.utc)).total_seconds() > 0.1:
             await asyncio.sleep(0.01)
-          
-          # Sleep in 1ms intervals for last 10ms (precise without busy-wait)
+
+          while (next_close_time - datetime.now(timezone.utc)).total_seconds() > 0.01:
+            await asyncio.sleep(0.001)
+
           while datetime.now(timezone.utc) < next_close_time:
-            await asyncio.sleep(0.001)  # 1ms sleep instead of busy-wait
+            await asyncio.sleep(0.0001)
           
           # Calculate wake latency (how late we woke up after target time)
           wake_latency = (datetime.now(timezone.utc) - next_close_time).total_seconds()

@@ -148,20 +148,25 @@ async def main():
         try:
           next_close_time = get_next_kline_close_time()
           
-          # Wake up 5 seconds early to compensate for asyncio.sleep() imprecision
-          early_wake_time = next_close_time - timedelta(seconds=5)
+          # Wake up 10 seconds early to compensate for asyncio.sleep() imprecision
+          early_wake_time = next_close_time - timedelta(seconds=10)
           early_sleep = (early_wake_time - datetime.now(timezone.utc)).total_seconds()
           
           if early_sleep > 0:
             await asyncio.sleep(early_sleep)
           
-          # Sleep in 10ms intervals until 10ms before target
-          while (next_close_time - datetime.now(timezone.utc)).total_seconds() > 0.01:
+          # Multi-stage sleep for better precision with lower CPU churn.
+          while (next_close_time - datetime.now(timezone.utc)).total_seconds() > 1:
+            await asyncio.sleep(0.1)
+
+          while (next_close_time - datetime.now(timezone.utc)).total_seconds() > 0.1:
             await asyncio.sleep(0.01)
-          
-          # Sleep in 1ms intervals for last 10ms (precise without busy-wait)
+
+          while (next_close_time - datetime.now(timezone.utc)).total_seconds() > 0.01:
+            await asyncio.sleep(0.001)
+
           while datetime.now(timezone.utc) < next_close_time:
-            await asyncio.sleep(0.001)  # 1ms sleep instead of busy-wait
+            await asyncio.sleep(0.0001)
           
           # Calculate wake latency (how late we woke up after target time)
           wake_latency = (datetime.now(timezone.utc) - next_close_time).total_seconds()

@@ -1233,8 +1233,8 @@ async def fetch_submission_task(client=None, subreddit=None, watchlist_subreddit
     async with semaphore:
         sub_submissions = []
         success = True
+        known_submission_ids = set(watchlist_submission.keys())
         if first_run or not watchlist_subreddit[subreddit].get("latest_submission_id"):
-            known_submission_ids = set(watchlist_submission.keys())
             temp = await fetch_submissions(
                     client=client,
                     subreddit=subreddit,
@@ -1305,8 +1305,15 @@ async def fetch_submission_task(client=None, subreddit=None, watchlist_subreddit
                     success = False  
                     break          
                 if len(temp) == 0:
-                    break  
+                    break 
                 watchlist_subreddit[subreddit]["latest_submission_id"] = max(temp, key=lambda x: x["created_utc"])["id"]
+                if any(item["id"] in known_submission_ids for item in temp) or any(item["created_utc"] < stop_time for item in temp):
+                    sub_submissions.extend([
+                        item for item in temp
+                        if item["id"] not in known_submission_ids
+                        and item["created_utc"] >= stop_time
+                    ])
+                    break 
                 sub_submissions.extend(temp)
                 before_id = watchlist_subreddit[subreddit].get("latest_submission_id")
                 temp = await fetch_submissions(

@@ -1,0 +1,25 @@
+services:
+  streaming-consumer-timescaledb-dashboard:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: "streaming.consumer.timescaledb.dashboard"
+    command: python -m src.streaming.consumer.timescaledb.dashboard.run
+    environment:
+      PYTHONUNBUFFERED: 1
+      PYTHONPATH: /app
+      TZ: UTC
+      TIMESCALE_HOST: timescaledb
+      TIMESCALE_PORT: 5432
+      TIMESCALE_DB: base
+      TIMESCALE_USER: admin
+      TIMESCALE_PASSWORD: password
+    volumes:
+      - ../src:/app/src
+    restart: unless-stopped
+
+networks:
+  default:
+    name: streaming
+    driver: bridge
+    external: true

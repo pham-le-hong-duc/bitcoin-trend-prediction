@@ -17,6 +17,7 @@ class Producer:
         compression_type="lz4",
         batch_size=16384,
         linger_ms=10,
+        acks=1,
     ):
         self.topic = topic
         self.bootstrap_servers = bootstrap_servers
@@ -29,7 +30,7 @@ class Producer:
                 compression_type=compression_type,
                 batch_size=batch_size,
                 linger_ms=linger_ms,
-                acks=1,
+                acks=acks,
                 retries=3,
                 max_in_flight_requests_per_connection=5,
                 api_version=(0, 10, 0),

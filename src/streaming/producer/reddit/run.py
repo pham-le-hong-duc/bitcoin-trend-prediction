@@ -74,11 +74,6 @@ def main() -> None:
     cookie_manager = CookieManager(str(COOKIE_GLOB))
     asyncio.run(cookie_manager.start())
     
-    print(
-        "Reddit producer models initialized. "
-        f"Hydrated {len(watchlist_submission)} active submissions from MinIO."
-    )
-
     client = httpx.AsyncClient(proxy=PROXY, timeout=30.0)
     
     run_tracking_pipeline(
@@ -100,6 +95,15 @@ def main() -> None:
         submission_producer=submission_producer,
         comment_producer=comment_producer,
     )
+    status_producer.send(
+        {
+            "first_run": True,
+            "timestamp_utc": int(datetime.now(timezone.utc).timestamp())
+        },
+        topic=REDDIT_STATUS_TOPIC,
+        key="reddit-producer",
+    )
+    status_producer.flush()
     while True:
         now = datetime.now(timezone.utc)
         next_run = (
@@ -143,6 +147,7 @@ def main() -> None:
         )
         status_producer.send(
                 {
+                    "first_run": False,
                     "timestamp_utc": int(next_run.timestamp()),
                 },
                 topic=REDDIT_STATUS_TOPIC,

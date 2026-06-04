@@ -66,13 +66,18 @@ class BinanceSpotAggTradesProducer:
     self.producer = Producer(
       bootstrap_servers=bootstrap_servers,
       topic=topic,
-      compression_type='lz4'
+      compression_type='lz4',
+      acks='all',
     )
     
     self.message_count = 0
     self.last_log_time = time.time()
     self.last_log_count = 0
+    self.last_message_time = time.time()
     self.connection = None
+    self.running = True
+    self.reconnect_delay_seconds = 5
+    self.stale_connection_seconds = 30
     
   def transform_message(self, data):
     """
@@ -134,6 +139,7 @@ class BinanceSpotAggTradesProducer:
       
       if future:
         self.message_count += 1
+        self.last_message_time = time.time()
         
         # Log every 60 seconds
         now = time.time()
@@ -156,24 +162,53 @@ class BinanceSpotAggTradesProducer:
     Start streaming aggregate trades from Binance and produce to Redpanda.
     """
     try:
-      # Create WebSocket connection
-      self.connection = await self.client.websocket_streams.create_connection()
-      
-      # Subscribe to aggregate trade stream
-      stream = await self.connection.agg_trade(symbol=self.symbol)
-      stream.on("message", self.on_message)
-      
-      # Keep running indefinitely
-      while True:
-        await asyncio.sleep(1)
+      while self.running:
+        try:
+          logger.info(f"Connecting websocket for {self.symbol}...")
+          self.connection = await self.client.websocket_streams.create_connection()
+
+          stream = await self.connection.agg_trade(symbol=self.symbol)
+          stream.on("message", self.on_message)
+          self.last_message_time = time.time()
+          logger.info(f"Subscribed aggTrade stream for {self.symbol}")
+
+          while self.running:
+            await asyncio.sleep(1)
+
+            idle_seconds = time.time() - self.last_message_time
+            if idle_seconds >= self.stale_connection_seconds:
+              raise RuntimeError(
+                f"No aggTrade message received for {idle_seconds:.0f}s"
+              )
+        except Exception as exc:
+          if not self.running:
+            break
+          logger.warning(
+            f"WebSocket loop interrupted for {self.symbol}: {exc}. "
+            f"Reconnecting in {self.reconnect_delay_seconds}s..."
+          )
+          await self._close_connection()
+          await asyncio.sleep(self.reconnect_delay_seconds)
         
     except KeyboardInterrupt:
       logger.info("Received keyboard interrupt, shutting down...")
+      self.running = False
     except Exception as e:
       logger.error(f"Error in stream: {e}")
       raise
     finally:
       await self.cleanup()
+
+  async def _close_connection(self):
+    """Close the current websocket connection if present."""
+    if self.connection:
+      try:
+        logger.info("Closing WebSocket connection...")
+        await self.connection.close_connection(close_session=True)
+      except Exception as exc:
+        logger.warning(f"Error closing WebSocket connection: {exc}")
+      finally:
+        self.connection = None
   
   async def cleanup(self):
     """
@@ -187,10 +222,7 @@ class BinanceSpotAggTradesProducer:
       self.producer.flush()
       self.producer.close()
     
-    # Close WebSocket connection
-    if self.connection:
-      logger.info("Closing WebSocket connection...")
-      await self.connection.close_connection(close_session=True)
+    await self._close_connection()
     
     logger.info(f"Total messages sent: {self.message_count}")
 
