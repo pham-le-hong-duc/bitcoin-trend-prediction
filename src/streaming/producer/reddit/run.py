@@ -38,6 +38,7 @@ PROXY = "http://TC13678_PwTWmX:w5geACRR__country-vn_streaming-1@193.228.193.86:1
 REDDIT_STATUS_TOPIC = "reddit-status"
 REDDIT_COMMENTS_TOPIC = "reddit-comments"
 REDDIT_SUBMISSIONS_TOPIC = "reddit-submissions"
+RUN_INTERVAL_MINUTES = 20
 
 
 
@@ -108,7 +109,7 @@ def main() -> None:
         now = datetime.now(timezone.utc)
         next_run = (
             now.replace(second=0, microsecond=0)
-            + timedelta(minutes=10 - now.minute % 10)
+            + timedelta(minutes=RUN_INTERVAL_MINUTES - now.minute % RUN_INTERVAL_MINUTES)
         )
         while True:
             now = datetime.now(timezone.utc)

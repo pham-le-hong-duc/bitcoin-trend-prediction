@@ -7,7 +7,7 @@ def main():
         data_type="futures/um/daily/metrics/BTCUSDT",
         url_template="https://data.binance.vision/data/futures/um/daily/metrics/BTCUSDT/BTCUSDT-metrics-{YYYY_MM_DD}.zip",
         frequency="daily",
-        base_start_date="2021-12-01",
+        base_start_date="2020-09-01",
         column_names=[
             "create_time",
             "symbol",

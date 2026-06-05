@@ -23,7 +23,8 @@ def initialize_dashboard_tables(client: TimescaleDBClient) -> None:
 
 def create_futures_index_price_kline_tables(client: TimescaleDBClient) -> None:
     columns_sql = """
-        close_time TIMESTAMP PRIMARY KEY,
+        open_time TIMESTAMP PRIMARY KEY,
+        close_time TIMESTAMP,
         open DOUBLE PRECISION,
         high DOUBLE PRECISION,
         low DOUBLE PRECISION,
@@ -34,7 +35,13 @@ def create_futures_index_price_kline_tables(client: TimescaleDBClient) -> None:
             schema_name="dashboard",
             table_name=f"futures_index_price_klines_{timeframe}",
             columns_sql=columns_sql,
-            hypertable_time_column="close_time",
+            hypertable_time_column="open_time",
+        )
+        client.execute(
+            f"""
+            ALTER TABLE dashboard.futures_index_price_klines_{timeframe}
+            ADD COLUMN IF NOT EXISTS open_time TIMESTAMP
+            """
         )
 
 
