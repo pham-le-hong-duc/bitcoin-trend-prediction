@@ -20,16 +20,25 @@ from src.streaming.consumer.timescaledb.consumer import Consumer
 
 class FuturesMetricsConsumer(Consumer):
     """Realtime dashboard consumer for futures metrics snapshots."""
+    SOURCE_INTERVAL_MS = 5 * 60 * 1000
+    VALUE_COLUMNS = [
+        "sum_open_interest",
+        "sum_open_interest_value",
+        "count_toptrader_long_short_ratio",
+        "sum_toptrader_long_short_ratio",
+        "count_long_short_ratio",
+        "sum_taker_long_short_vol_ratio",
+    ]
 
     def __init__(self, **kwargs):
         super().__init__(
             topic="binance-futures-metrics",
             data_type="futures/um/daily/metrics/BTCUSDT",
             symbol="btcusdt",
-            timestamp_field="create_time",
+            timestamp_field="bucket_create_time",
             intervals=["5m", "15m", "1h", "4h", "1d"],
             window_timestamp_mode="end",
-            dedupe_columns=["create_time"],
+            dedupe_columns=["bucket_create_time"],
             warmup_messages=50,
             schema_name="dashboard",
             key_column="create_time",
@@ -39,6 +48,14 @@ class FuturesMetricsConsumer(Consumer):
     def transform_record(self, record, topic):
         normalized = dict(record)
         normalized["create_time"] = self._normalize_create_time(record.get("create_time"))
+        if normalized["create_time"] is not None:
+            normalized["bucket_create_time"] = (
+                normalized["create_time"] // self.SOURCE_INTERVAL_MS
+            ) * self.SOURCE_INTERVAL_MS
+
+        for column in self.VALUE_COLUMNS:
+            normalized[column] = self._normalize_metric_value(record.get(column))
+
         return normalized if normalized["create_time"] is not None else None
 
     def transform_historical_df(self, df, source_name):
@@ -62,7 +79,7 @@ class FuturesMetricsConsumer(Consumer):
         boundary.
         """
         try:
-            df_sorted = df_window.sort("create_time")
+            df_sorted = df_window.sort("bucket_create_time")
             last_row = df_sorted.tail(1)
 
             if len(last_row) == 0:
@@ -121,6 +138,21 @@ class FuturesMetricsConsumer(Consumer):
         if isinstance(value, (int, float)):
             return int(value)
 
+        return None
+
+    def _normalize_metric_value(self, value: Any):
+        if value is None or value == "":
+            return None
+        if isinstance(value, str):
+            stripped = value.strip()
+            if not stripped:
+                return None
+            try:
+                return float(stripped)
+            except ValueError:
+                return None
+        if isinstance(value, (int, float)):
+            return float(value)
         return None
 
 

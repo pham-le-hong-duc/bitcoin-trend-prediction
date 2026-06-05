@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import re
 
 import polars as pl
 
@@ -8,6 +9,7 @@ from src.batch.timescaledb.base import HistoricalSource, HistoricalTimescaleBatc
 
 
 class FuturesMetricsBatch(HistoricalTimescaleBatch):
+    DUPLICATED_SUFFIX_PATTERN = re.compile(r"_duplicated_\d+$")
     METRICS_COLUMNS = [
         "create_time",
         "symbol",
@@ -26,6 +28,16 @@ class FuturesMetricsBatch(HistoricalTimescaleBatch):
         "count_long_short_ratio",
         "sum_taker_long_short_vol_ratio",
     ]
+    OUTPUT_SCHEMA = {
+        "create_time": pl.Datetime(time_zone="UTC"),
+        "sum_open_interest": pl.Float64,
+        "sum_open_interest_value": pl.Float64,
+        "count_toptrader_long_short_ratio": pl.Float64,
+        "sum_toptrader_long_short_ratio": pl.Float64,
+        "count_long_short_ratio": pl.Float64,
+        "sum_taker_long_short_vol_ratio": pl.Float64,
+    }
+    SOURCE_INTERVAL_MS = INTERVAL_TO_MS["5m"]
 
     def __init__(self) -> None:
         super().__init__(
@@ -38,12 +50,29 @@ class FuturesMetricsBatch(HistoricalTimescaleBatch):
                     prefix="futures/um/daily/metrics/BTCUSDT",
                 )
             ],
-            base_start_date=datetime(2021, 12, 1, tzinfo=timezone.utc),
+            base_start_date=datetime(2020, 9, 1, tzinfo=timezone.utc),
             minio_bucket="binance",
         )
 
     def table_name(self, interval: str) -> str:
         return f"futures_metrics_{interval}"
+
+    def _clean_header_value(self, value: str) -> str:
+        return self.DUPLICATED_SUFFIX_PATTERN.sub("", value)
+
+    def _recover_headerless_df(self, df: pl.DataFrame) -> pl.DataFrame:
+        recovered_first_row = {
+            expected: self._clean_header_value(current)
+            for current, expected in zip(df.columns, self.METRICS_COLUMNS)
+        }
+        renamed_df = df.rename(
+            {
+                current: expected
+                for current, expected in zip(df.columns, self.METRICS_COLUMNS)
+            }
+        )
+        recovered_df = pl.DataFrame([recovered_first_row])
+        return pl.concat([recovered_df, renamed_df], how="vertical_relaxed")
 
     def _normalize_historical_df(self, df: pl.DataFrame) -> pl.DataFrame:
         if df.is_empty():
@@ -56,13 +85,7 @@ class FuturesMetricsBatch(HistoricalTimescaleBatch):
                     f"expected {len(self.METRICS_COLUMNS)} columns, got {df.width} "
                     f"({df.columns})"
                 )
-
-            df = df.rename(
-                {
-                    current: expected
-                    for current, expected in zip(df.columns, self.METRICS_COLUMNS)
-                }
-            )
+            df = self._recover_headerless_df(df)
 
         create_time_dtype = df.schema.get("create_time")
         if create_time_dtype == pl.Utf8:
@@ -87,6 +110,14 @@ class FuturesMetricsBatch(HistoricalTimescaleBatch):
             )
 
         df = df.with_columns(value_expressions)
+        df = df.with_columns(
+            # Some daily files contain bucket timestamps offset by a second
+            # (for example 05:35:01 instead of 05:35:00). Normalize them back
+            # to the canonical 5m boundary before aggregation.
+            ((pl.col("create_time") // self.SOURCE_INTERVAL_MS) * self.SOURCE_INTERVAL_MS).alias(
+                "bucket_create_time"
+            )
+        )
 
         return df
 
@@ -108,9 +139,9 @@ class FuturesMetricsBatch(HistoricalTimescaleBatch):
         for boundary_ts_ms in timestamps:
             window_start = boundary_ts_ms - interval_ms
             window_df = df.filter(
-                (pl.col("create_time") > window_start)
-                & (pl.col("create_time") <= boundary_ts_ms)
-            ).sort("create_time")
+                (pl.col("bucket_create_time") > window_start)
+                & (pl.col("bucket_create_time") <= boundary_ts_ms)
+            ).sort("bucket_create_time")
 
             if window_df.is_empty():
                 continue
@@ -140,7 +171,7 @@ class FuturesMetricsBatch(HistoricalTimescaleBatch):
                 }
             )
 
-        return pl.DataFrame(rows) if rows else None
+        return pl.DataFrame(rows, schema=self.OUTPUT_SCHEMA) if rows else None
 
 
 def main() -> None:
