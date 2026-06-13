@@ -1,6 +1,6 @@
 __pycache__/
 data/
 src/model/
-refer/
+refer/model/
 .codex/
 AGENTS.md

@@ -1,0 +1,451 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "timescaledb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "latest_utc"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 11,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true
+      },
+      "pluginVersion": "10.4.3",
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "timescaledb"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH items AS (\n  SELECT\n    'kline' AS dataset,\n    '${kline_interval}' AS interval,\n    MAX(close_time) AS latest_utc,\n    COUNT(*) FILTER (WHERE $__timeFilter(close_time)) AS rows_in_range,\n    CASE '${kline_interval}' WHEN '1m' THEN 0.25 WHEN '5m' THEN 0.50 WHEN '15m' THEN 1.00 WHEN '1h' THEN 2.00 WHEN '4h' THEN 8.00 ELSE 48.00 END AS sla_hours\n  FROM dashboard.futures_index_price_klines_${kline_interval}\n  UNION ALL\n  SELECT\n    'futures_metrics' AS dataset,\n    '${metrics_interval}' AS interval,\n    MAX(create_time) AS latest_utc,\n    COUNT(*) FILTER (WHERE $__timeFilter(create_time)) AS rows_in_range,\n    CASE '${metrics_interval}' WHEN '5m' THEN 0.50 WHEN '15m' THEN 1.00 WHEN '1h' THEN 2.00 WHEN '4h' THEN 8.00 ELSE 48.00 END AS sla_hours\n  FROM dashboard.futures_metrics_${metrics_interval}\n  UNION ALL\n  SELECT\n    'sentiment' AS dataset,\n    '${sentiment_interval}' AS interval,\n    MAX(create_time) AS latest_utc,\n    COUNT(*) FILTER (WHERE $__timeFilter(create_time)) AS rows_in_range,\n    CASE '${sentiment_interval}' WHEN '1h' THEN 2.00 WHEN '4h' THEN 8.00 ELSE 48.00 END AS sla_hours\n  FROM dashboard.sentiment_${sentiment_interval}\n  UNION ALL\n  SELECT\n    'prediction' AS dataset,\n    '${kline_interval}' AS interval,\n    MAX(target_time) AS latest_utc,\n    COUNT(*) FILTER (WHERE $__timeFilter(target_time)) AS rows_in_range,\n    CASE '${kline_interval}' WHEN '1m' THEN 0.25 WHEN '5m' THEN 0.50 WHEN '15m' THEN 1.00 WHEN '1h' THEN 2.00 WHEN '4h' THEN 8.00 ELSE 48.00 END AS sla_hours\n  FROM dashboard.predictions_${kline_interval}\n  WHERE model_name = '${model_name}'\n), aged AS (\n  SELECT\n    dataset,\n    interval,\n    latest_utc,\n    rows_in_range,\n    sla_hours,\n    ROUND((EXTRACT(EPOCH FROM ((NOW() AT TIME ZONE 'UTC') - latest_utc)) / 3600.0)::NUMERIC, 2) AS age_hours\n  FROM items\n)\nSELECT\n  dataset,\n  interval,\n  latest_utc,\n  rows_in_range,\n  age_hours,\n  sla_hours,\n  CASE\n    WHEN latest_utc IS NULL THEN 'NO_DATA'\n    WHEN age_hours > sla_hours THEN 'STALE'\n    ELSE 'OK'\n  END AS status\nFROM aged\nORDER BY CASE dataset WHEN 'kline' THEN 1 WHEN 'futures_metrics' THEN 2 WHEN 'sentiment' THEN 3 ELSE 4 END;",
+          "refId": "A"
+        }
+      ],
+      "title": "Dataset Freshness SLA",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "timescaledb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 7
+      },
+      "id": 1,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true
+      },
+      "pluginVersion": "10.4.3",
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "timescaledb"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH cfg AS (\n  SELECT\n    CASE '${kline_interval}' WHEN '1m' THEN 60.0 WHEN '5m' THEN 300.0 WHEN '15m' THEN 900.0 WHEN '1h' THEN 3600.0 WHEN '4h' THEN 14400.0 ELSE 86400.0 END AS kline_step,\n    CASE '${metrics_interval}' WHEN '5m' THEN 300.0 WHEN '15m' THEN 900.0 WHEN '1h' THEN 3600.0 WHEN '4h' THEN 14400.0 ELSE 86400.0 END AS metrics_step,\n    CASE '${sentiment_interval}' WHEN '1h' THEN 3600.0 WHEN '4h' THEN 14400.0 ELSE 86400.0 END AS sentiment_step\n), points AS (\n  SELECT 'kline' AS dataset, close_time AS ts, kline_step AS step_seconds\n  FROM dashboard.futures_index_price_klines_${kline_interval}, cfg\n  WHERE $__timeFilter(close_time)\n  UNION ALL\n  SELECT 'futures_metrics' AS dataset, create_time AS ts, metrics_step AS step_seconds\n  FROM dashboard.futures_metrics_${metrics_interval}, cfg\n  WHERE $__timeFilter(create_time)\n  UNION ALL\n  SELECT 'sentiment' AS dataset, create_time AS ts, sentiment_step AS step_seconds\n  FROM dashboard.sentiment_${sentiment_interval}, cfg\n  WHERE $__timeFilter(create_time)\n  UNION ALL\n  SELECT 'prediction' AS dataset, target_time AS ts, kline_step AS step_seconds\n  FROM dashboard.predictions_${kline_interval}, cfg\n  WHERE $__timeFilter(target_time)\n    AND model_name = '${model_name}'\n), ordered AS (\n  SELECT\n    dataset,\n    ts,\n    step_seconds,\n    LAG(ts) OVER (PARTITION BY dataset ORDER BY ts) AS prev_ts\n  FROM points\n), scored AS (\n  SELECT\n    dataset,\n    ts,\n    prev_ts,\n    step_seconds,\n    EXTRACT(EPOCH FROM (ts - prev_ts)) AS gap_seconds\n  FROM ordered\n)\nSELECT\n  dataset,\n  COUNT(*) AS rows_checked,\n  COUNT(*) FILTER (WHERE prev_ts IS NOT NULL AND gap_seconds > step_seconds * 1.5) AS gap_events,\n  ROUND(COALESCE(SUM(CASE WHEN prev_ts IS NOT NULL AND gap_seconds > step_seconds * 1.5 THEN GREATEST((gap_seconds / step_seconds) - 1, 0) ELSE 0 END), 0)::NUMERIC, 0) AS estimated_missing_buckets,\n  ROUND(MAX(gap_seconds / 60.0)::NUMERIC, 2) AS max_gap_minutes\nFROM scored\nGROUP BY dataset\nORDER BY CASE dataset WHEN 'kline' THEN 1 WHEN 'futures_metrics' THEN 2 WHEN 'sentiment' THEN 3 ELSE 4 END;",
+          "refId": "A"
+        }
+      ],
+      "title": "Gap Events By Dataset",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "timescaledb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 14
+      },
+      "id": 2,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true
+      },
+      "pluginVersion": "10.4.3",
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "timescaledb"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT 'kline' AS dataset, COUNT(*) AS row_count, COUNT(*) - COUNT(DISTINCT close_time) AS duplicate_keys\nFROM dashboard.futures_index_price_klines_${kline_interval}\nWHERE $__timeFilter(close_time)\nUNION ALL\nSELECT 'futures_metrics' AS dataset, COUNT(*) AS row_count, COUNT(*) - COUNT(DISTINCT create_time) AS duplicate_keys\nFROM dashboard.futures_metrics_${metrics_interval}\nWHERE $__timeFilter(create_time)\nUNION ALL\nSELECT 'sentiment' AS dataset, COUNT(*) AS row_count, COUNT(*) - COUNT(DISTINCT create_time) AS duplicate_keys\nFROM dashboard.sentiment_${sentiment_interval}\nWHERE $__timeFilter(create_time)\nUNION ALL\nSELECT 'prediction' AS dataset, COUNT(*) AS row_count, COUNT(*) - COUNT(DISTINCT target_time) AS duplicate_keys\nFROM dashboard.predictions_${kline_interval}\nWHERE $__timeFilter(target_time)\n  AND model_name = '${model_name}';",
+          "refId": "A"
+        }
+      ],
+      "title": "Duplicate Key Check",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "timescaledb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 14
+      },
+      "id": 7,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true
+      },
+      "pluginVersion": "10.4.3",
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "timescaledb"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH evaluated AS (\n  SELECT\n    target_time,\n    predicted_close,\n    actual_close,\n    LOWER(predicted_direction) AS predicted_direction,\n    COALESCE(prediction_error, predicted_close - actual_close) AS error,\n    LAG(actual_close) OVER (ORDER BY target_time) AS previous_actual_close\n  FROM dashboard.predictions_${kline_interval}\n  WHERE $__timeFilter(target_time)\n    AND model_name = '${model_name}'\n    AND predicted_close IS NOT NULL\n    AND actual_close IS NOT NULL\n), scored AS (\n  SELECT\n    *,\n    CASE\n      WHEN previous_actual_close IS NULL OR predicted_direction IS NULL THEN NULL\n      WHEN predicted_direction IN ('up', 'bullish', 'long') AND actual_close > previous_actual_close THEN 1.0\n      WHEN predicted_direction IN ('down', 'bearish', 'short') AND actual_close < previous_actual_close THEN 1.0\n      WHEN predicted_direction IN ('flat', 'neutral', 'sideways') AND actual_close = previous_actual_close THEN 1.0\n      ELSE 0.0\n    END AS direction_hit\n  FROM evaluated\n)\nSELECT\n  COUNT(*) AS evaluated_predictions,\n  ROUND(AVG(ABS(error))::NUMERIC, 2) AS mae,\n  ROUND((AVG(ABS(error) / NULLIF(actual_close, 0)) * 100)::NUMERIC, 4) AS mape_pct,\n  ROUND(AVG(direction_hit)::NUMERIC, 4) AS directional_accuracy,\n  ROUND(MAX(ABS(error))::NUMERIC, 2) AS max_abs_error\nFROM scored;",
+          "refId": "A"
+        }
+      ],
+      "title": "Prediction Evaluation Snapshot",
+      "type": "table"
+    }
+  ],
+  "refresh": "1m",
+  "schemaVersion": 39,
+  "tags": [
+    "bitcoin",
+    "timescaledb",
+    "data-quality"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "selected": true,
+          "text": "1h",
+          "value": "1h"
+        },
+        "hide": 0,
+        "includeAll": false,
+        "label": "Kline Interval",
+        "multi": false,
+        "name": "kline_interval",
+        "options": [
+          {
+            "selected": false,
+            "text": "1m",
+            "value": "1m"
+          },
+          {
+            "selected": false,
+            "text": "5m",
+            "value": "5m"
+          },
+          {
+            "selected": false,
+            "text": "15m",
+            "value": "15m"
+          },
+          {
+            "selected": true,
+            "text": "1h",
+            "value": "1h"
+          },
+          {
+            "selected": false,
+            "text": "4h",
+            "value": "4h"
+          },
+          {
+            "selected": false,
+            "text": "1d",
+            "value": "1d"
+          }
+        ],
+        "query": "1m,5m,15m,1h,4h,1d",
+        "type": "custom"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": "1h",
+          "value": "1h"
+        },
+        "hide": 0,
+        "includeAll": false,
+        "label": "Metrics Interval",
+        "multi": false,
+        "name": "metrics_interval",
+        "options": [
+          {
+            "selected": false,
+            "text": "5m",
+            "value": "5m"
+          },
+          {
+            "selected": false,
+            "text": "15m",
+            "value": "15m"
+          },
+          {
+            "selected": true,
+            "text": "1h",
+            "value": "1h"
+          },
+          {
+            "selected": false,
+            "text": "4h",
+            "value": "4h"
+          },
+          {
+            "selected": false,
+            "text": "1d",
+            "value": "1d"
+          }
+        ],
+        "query": "5m,15m,1h,4h,1d",
+        "type": "custom"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": "1h",
+          "value": "1h"
+        },
+        "hide": 0,
+        "includeAll": false,
+        "label": "Sentiment Interval",
+        "multi": false,
+        "name": "sentiment_interval",
+        "options": [
+          {
+            "selected": true,
+            "text": "1h",
+            "value": "1h"
+          },
+          {
+            "selected": false,
+            "text": "4h",
+            "value": "4h"
+          },
+          {
+            "selected": false,
+            "text": "1d",
+            "value": "1d"
+          }
+        ],
+        "query": "1h,4h,1d",
+        "type": "custom"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": "baseline_dashboard_v1",
+          "value": "baseline_dashboard_v1"
+        },
+        "hide": 0,
+        "includeAll": false,
+        "label": "Model",
+        "multi": false,
+        "name": "model_name",
+        "options": [
+          {
+            "selected": true,
+            "text": "baseline_dashboard_v1",
+            "value": "baseline_dashboard_v1"
+          }
+        ],
+        "query": "baseline_dashboard_v1",
+        "type": "custom"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "utc",
+  "title": "BTC Data Quality",
+  "uid": "btc-data-quality",
+  "version": 1,
+  "weekStart": ""
+}
