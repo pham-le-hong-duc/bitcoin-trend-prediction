@@ -48,8 +48,9 @@ with DAG(
     dag_id="batch_timescaledb",
     default_args=default_args,
     description="Backfill dashboard aggregates in TimescaleDB from historical MinIO parquet files.",
-    schedule_interval=None,
+    schedule_interval="*/30 * * * *",
     catchup=False,
+    max_active_runs=1,
 ) as dag:
     backfill_futures_indexpriceklines = PythonOperator(
         task_id="backfill_futures_indexpriceklines",

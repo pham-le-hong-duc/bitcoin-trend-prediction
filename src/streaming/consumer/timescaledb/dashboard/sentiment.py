@@ -46,12 +46,61 @@ CUSTOM_STOPWORDS = {
     "there's",
     "youre",
     "you're",
+    "able",
+    "actual",
+    "already",
+    "also",
+    "another",
+    "anyone",
+    "anything",
+    "around",
+    "always",
+    "back",
+    "based",
+    "become",
+    "believe",
+    "big",
+    "bit",
+    "bitcoin",
+    "btc",
+    "could",
+    "crypto",
+    "don",
+    "even",
+    "every",
+    "get",
+    "going",
+    "got",
+    "make",
+    "many",
+    "might",
+    "much",
+    "now",
+    "one",
+    "people",
+    "real",
+    "really",
+    "see",
+    "since",
+    "someone",
+    "something",
+    "still",
+    "thing",
+    "things",
+    "think",
+    "time",
+    "use",
+    "want",
+    "way",
+    "will",
+    "would",
 }
-SHORT_TOKEN_ALLOWLIST = {"ai", "us", "uk", "eu"}
+SHORT_TOKEN_ALLOWLIST = {"ai", "uk", "eu"}
 
 
 class SentimentConsumer(Consumer):
     """Realtime dashboard consumer for Reddit sentiment aggregates."""
+    STATUS_GRACE_MS = 40 * 60 * 1000
 
     def __init__(self, **kwargs):
         self.pending_status_boundaries = set()
@@ -72,7 +121,7 @@ class SentimentConsumer(Consumer):
             data_type="reddit-sentiment",
             timestamp_field="event_ts_ms",
             intervals=["1h", "4h", "1d"],
-            boundary_interval="10m",
+            boundary_interval="20m",
             dedupe_columns=["source", "record_id"],
             warmup_messages=200,
             minio_bucket="reddit",
@@ -126,7 +175,9 @@ class SentimentConsumer(Consumer):
         return bool(self.pending_status_boundaries)
 
     def can_process_boundary(self, boundary_ts_ms, max_ts):
-        return boundary_ts_ms in self.pending_status_boundaries
+        if boundary_ts_ms in self.pending_status_boundaries:
+            return True
+        return max_ts >= boundary_ts_ms + self.STATUS_GRACE_MS
 
     def on_boundary_processed(self, boundary_ts_ms):
         self.pending_status_boundaries.discard(boundary_ts_ms)
@@ -222,13 +273,23 @@ class SentimentConsumer(Consumer):
         cleaned_tokens = []
         for raw_token in normalized.split():
             token = "".join(
-                ch for ch in raw_token if ch == "'" or not unicodedata.category(ch).startswith("P")
-            ).strip()
+                ch
+                for ch in raw_token
+                if ch == "'"
+                or (
+                    not unicodedata.category(ch).startswith("P")
+                    and not unicodedata.category(ch).startswith("S")
+                )
+            ).strip("'")
             if not token:
                 continue
             if token in self.stopwords:
                 continue
             if token in CUSTOM_STOPWORDS:
+                continue
+            if any(ch.isdigit() for ch in token):
+                continue
+            if not any(ch.isalpha() for ch in token):
                 continue
             if token.isdigit():
                 continue

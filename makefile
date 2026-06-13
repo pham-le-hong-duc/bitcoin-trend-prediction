@@ -10,7 +10,7 @@
 # 5. consumer.timescaledb-up -> Start TimescaleDB dashboard consumer (docker/docker-compose.streaming.consumer.timescaledb.yml)
 # 6. batch_timescaledb  -> Trigger batch_timescaledb DAG (dags/batch_timescaledb.py)
 
-.PHONY: infra-up producer-up consumer.minio-up batch_minio consumer.timescaledb-up batch_timescaledb up down start-all build
+.PHONY: infra-up producer-up consumer.minio-up batch_minio consumer.timescaledb-up batch_timescaledb dashboard_prediction verify up down start-all build
 
 # Build target
 build:
@@ -74,8 +74,22 @@ batch_timescaledb:
 	@powershell -Command "& { \$$timestamp = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss'); docker exec -e PYTHONWARNINGS=ignore airflow-webserver airflow dags trigger -e \$$timestamp batch_timescaledb 2>&1 | Select-String -Pattern 'Created|triggered' -CaseSensitive; do { Start-Sleep -Seconds 5; \$$status = (docker exec -e PYTHONWARNINGS=ignore airflow-webserver airflow dags state batch_timescaledb \$$timestamp 2>&1 | Select-String -Pattern 'queued|running|success|failed' -CaseSensitive).ToString().Trim(); } while (\$$status -match 'running|queued'); if (\$$status -ne 'success') { Write-Host ('[ERROR] DAG Failed: ' + \$$status) -ForegroundColor Red; exit 1 } }"
 	@echo "[OK] DAG batch_timescaledb finished!"
 
+dashboard_prediction:
+	@echo "========================================================="
+	@echo "Running DAG dashboard_prediction..."
+	@echo "========================================================="
+	@powershell -Command "& { \$$timestamp = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss'); docker exec -e PYTHONWARNINGS=ignore airflow-webserver airflow dags trigger -e \$$timestamp dashboard_prediction 2>&1 | Select-String -Pattern 'Created|triggered' -CaseSensitive; do { Start-Sleep -Seconds 5; \$$status = (docker exec -e PYTHONWARNINGS=ignore airflow-webserver airflow dags state dashboard_prediction \$$timestamp 2>&1 | Select-String -Pattern 'queued|running|success|failed' -CaseSensitive).ToString().Trim(); } while (\$$status -match 'running|queued'); if (\$$status -ne 'success') { Write-Host ('[ERROR] DAG Failed: ' + \$$status) -ForegroundColor Red; exit 1 } }"
+	@echo "[OK] DAG dashboard_prediction finished!"
+
+verify:
+	@echo "========================================================="
+	@echo "STEP 7: Verifying stack health and dashboard data..."
+	@echo "========================================================="
+	@powershell -Command "& { \$$containers = @('timescaledb','grafana','airflow-webserver','airflow-scheduler','streaming.producer.binance','streaming.producer.reddit','streaming.consumer.timescaledb.dashboard'); foreach (\$$name in \$$containers) { \$$state = (docker inspect -f '{{.State.Status}}' \$$name 2>\$$null); if (\$$state -ne 'running') { Write-Host ('[ERROR] Container not running: ' + \$$name) -ForegroundColor Red; exit 1 } }; \$$checks = @(\"SELECT 'futures_index_price_klines_1m' AS dataset, MAX(close_time) AS latest_ts, COUNT(*) AS row_count FROM dashboard.futures_index_price_klines_1m\",\"SELECT 'futures_metrics_5m' AS dataset, MAX(create_time) AS latest_ts, COUNT(*) AS row_count FROM dashboard.futures_metrics_5m\",\"SELECT 'sentiment_1h' AS dataset, MAX(create_time) AS latest_ts, COUNT(*) AS row_count FROM dashboard.sentiment_1h\",\"SELECT 'predictions_1h' AS dataset, MAX(target_time) AS latest_ts, COUNT(*) AS row_count FROM dashboard.predictions_1h\"); foreach (\$$sql in \$$checks) { docker exec timescaledb psql -U admin -d base -t -A -c \$$sql; if (\$$LASTEXITCODE -ne 0) { Write-Host '[ERROR] Verification query failed' -ForegroundColor Red; exit 1 } } }"
+	@echo "[OK] Stack verification finished!"
+
 # Combined operations
-up: infra-up consumer.minio-up producer-up batch_minio consumer.timescaledb-up batch_timescaledb
+up: infra-up consumer.minio-up producer-up batch_minio consumer.timescaledb-up batch_timescaledb dashboard_prediction verify
 
 down:
 	@docker-compose -f docker/docker-compose.infrastructure.yml -f docker/docker-compose.streaming.producer.yml -f docker/docker-compose.streaming.consumer.minio.yml -f docker/docker-compose.streaming.consumer.timescaledb.yml down

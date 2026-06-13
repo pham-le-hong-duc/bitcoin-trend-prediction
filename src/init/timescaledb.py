@@ -19,28 +19,42 @@ def initialize_dashboard_tables(client: TimescaleDBClient) -> None:
     create_futures_index_price_kline_tables(client)
     create_futures_metrics_tables(client)
     create_sentiment_tables(client)
+    create_prediction_tables(client)
 
 
 def create_futures_index_price_kline_tables(client: TimescaleDBClient) -> None:
     columns_sql = """
-        open_time TIMESTAMP PRIMARY KEY,
-        close_time TIMESTAMP,
+        open_time TIMESTAMP,
+        close_time TIMESTAMP PRIMARY KEY,
         open DOUBLE PRECISION,
         high DOUBLE PRECISION,
         low DOUBLE PRECISION,
-        close DOUBLE PRECISION
+        close DOUBLE PRECISION,
+        volume DOUBLE PRECISION,
+        quote_volume DOUBLE PRECISION,
+        taker_buy_volume DOUBLE PRECISION,
+        taker_buy_quote_volume DOUBLE PRECISION
     """
     for timeframe in KLINE_TIMEFRAMES:
         client.ensure_table(
             schema_name="dashboard",
             table_name=f"futures_index_price_klines_{timeframe}",
             columns_sql=columns_sql,
-            hypertable_time_column="open_time",
+            hypertable_time_column="close_time",
         )
         client.execute(
             f"""
             ALTER TABLE dashboard.futures_index_price_klines_{timeframe}
             ADD COLUMN IF NOT EXISTS open_time TIMESTAMP
+            """
+        )
+        client.execute(
+            f"""
+            ALTER TABLE dashboard.futures_index_price_klines_{timeframe}
+            ADD COLUMN IF NOT EXISTS volume DOUBLE PRECISION,
+            ADD COLUMN IF NOT EXISTS quote_volume DOUBLE PRECISION,
+            ADD COLUMN IF NOT EXISTS taker_buy_volume DOUBLE PRECISION,
+            ADD COLUMN IF NOT EXISTS taker_buy_quote_volume DOUBLE PRECISION
             """
         )
 
@@ -84,6 +98,28 @@ def create_sentiment_tables(client: TimescaleDBClient) -> None:
         )
 
 
+def create_prediction_tables(client: TimescaleDBClient) -> None:
+    columns_sql = """
+        target_time TIMESTAMP PRIMARY KEY,
+        generated_at TIMESTAMP,
+        model_name TEXT,
+        interval TEXT,
+        predicted_close DOUBLE PRECISION,
+        predicted_return_pct DOUBLE PRECISION,
+        predicted_direction TEXT,
+        confidence DOUBLE PRECISION,
+        actual_close DOUBLE PRECISION,
+        prediction_error DOUBLE PRECISION
+    """
+    for timeframe in KLINE_TIMEFRAMES:
+        client.ensure_table(
+            schema_name="dashboard",
+            table_name=f"predictions_{timeframe}",
+            columns_sql=columns_sql,
+            hypertable_time_column="target_time",
+        )
+
+
 def main() -> None:
     print("TIMESCALEDB INITIALIZATION")
     client = None
@@ -103,3 +139,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

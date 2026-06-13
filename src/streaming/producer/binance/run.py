@@ -4,6 +4,7 @@ Saves memory by sharing one Python interpreter and dependencies
 """
 import asyncio
 import logging
+import os
 
 # Import all producer modules
 from src.streaming.producer.binance import (
@@ -21,6 +22,7 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+RESTART_DELAY_SECONDS = int(os.getenv("BINANCE_PRODUCER_RESTART_DELAY_SECONDS", "15"))
 
 # Giảm log level cho các thư viện bên ngoài
 logging.getLogger('kafka').setLevel(logging.WARNING)
@@ -31,12 +33,18 @@ logging.getLogger('urllib3').setLevel(logging.WARNING)
 
 
 async def run_with_logging(name, producer_main):
-    """Wrapper to run a producer with error handling"""
-    try:
-        logger.info(f"Starting producer: {name}")
-        await producer_main()
-    except Exception as e:
-        logger.error(f"Producer {name} failed: {e}", exc_info=True)
+    """Keep one producer alive even if its coroutine crashes."""
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            logger.info(f"Starting producer: {name} (attempt {attempt})")
+            await producer_main()
+            logger.warning(f"Producer {name} exited unexpectedly, restarting soon")
+        except Exception as e:
+            logger.error(f"Producer {name} failed: {e}", exc_info=True)
+
+        await asyncio.sleep(RESTART_DELAY_SECONDS)
 
 
 async def main():

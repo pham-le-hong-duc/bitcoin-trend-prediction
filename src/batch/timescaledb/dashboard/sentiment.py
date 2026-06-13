@@ -36,8 +36,56 @@ CUSTOM_STOPWORDS = {
     "there's",
     "youre",
     "you're",
+    "able",
+    "actual",
+    "already",
+    "also",
+    "another",
+    "anyone",
+    "anything",
+    "around",
+    "always",
+    "back",
+    "based",
+    "become",
+    "believe",
+    "big",
+    "bit",
+    "bitcoin",
+    "btc",
+    "could",
+    "crypto",
+    "don",
+    "even",
+    "every",
+    "get",
+    "going",
+    "got",
+    "make",
+    "many",
+    "might",
+    "much",
+    "now",
+    "one",
+    "people",
+    "real",
+    "really",
+    "see",
+    "since",
+    "someone",
+    "something",
+    "still",
+    "thing",
+    "things",
+    "think",
+    "time",
+    "use",
+    "want",
+    "way",
+    "will",
+    "would",
 }
-SHORT_TOKEN_ALLOWLIST = {"ai", "us", "uk", "eu"}
+SHORT_TOKEN_ALLOWLIST = {"ai", "uk", "eu"}
 
 
 class SentimentBatch(HistoricalTimescaleBatch):
@@ -128,16 +176,24 @@ class SentimentBatch(HistoricalTimescaleBatch):
         )
         cleaned_chars = []
         for char in lowered:
-            if char != "'" and unicodedata.category(char).startswith("P"):
+            category = unicodedata.category(char)
+            if char != "'" and (category.startswith("P") or category.startswith("S")):
                 cleaned_chars.append(" ")
             else:
                 cleaned_chars.append(char)
 
         tokens = []
         for token in "".join(cleaned_chars).split():
+            token = token.strip("'")
+            if not token:
+                continue
             if token in self.stopwords:
                 continue
             if token in CUSTOM_STOPWORDS:
+                continue
+            if any(char.isdigit() for char in token):
+                continue
+            if not any(char.isalpha() for char in token):
                 continue
             if token.isdigit():
                 continue

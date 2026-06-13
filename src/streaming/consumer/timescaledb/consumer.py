@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import signal
 import threading
 import time
@@ -54,6 +55,7 @@ class Consumer:
         schema_name="dashboard",
         key_column="ts_ms",
         max_poll_records=1000,
+        auto_offset_reset=None,
     ):
         self.topic = topic
         self.topics = topics or ([topic] if topic else [])
@@ -69,10 +71,17 @@ class Consumer:
         self.window_timestamp_mode = window_timestamp_mode
         self.historical_files_to_load = historical_files_to_load
         self.dedupe_columns = dedupe_columns
-        self.warmup_messages = warmup_messages
+        min_warmup_messages = int(
+            os.getenv("TIMESCALEDB_KAFKA_MIN_WARMUP_MESSAGES", "0")
+        )
+        self.warmup_messages = max(warmup_messages, min_warmup_messages)
         self.schema_name = schema_name
         self.key_column = key_column
         self.max_poll_records = max_poll_records
+        self.auto_offset_reset = auto_offset_reset or os.getenv(
+            "TIMESCALEDB_KAFKA_AUTO_OFFSET_RESET",
+            "earliest",
+        )
         self.minio_prefix = minio_prefix or self._default_minio_prefix()
         self.historical_sources = historical_sources or [(self.minio_prefix, None)]
         self.retention_buffer_ms = 5 * 60 * 1000
@@ -96,7 +105,7 @@ class Consumer:
             bootstrap_servers=bootstrap_servers,
             group_id=consumer_group_id,
             value_deserializer=lambda message: json.loads(message.decode("utf-8")),
-            auto_offset_reset="latest",
+            auto_offset_reset=self.auto_offset_reset,
             enable_auto_commit=False,
             max_poll_records=self.max_poll_records,
             session_timeout_ms=30000,
@@ -150,6 +159,10 @@ class Consumer:
         self.partitions = partitions
 
     def _warmup_recent_messages(self):
+        if self.warmup_messages <= 0:
+            logger.info("Warmup disabled")
+            return
+
         logger.info(
             f"Container startup - loading last {self.warmup_messages} messages for warmup"
         )

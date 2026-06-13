@@ -2,3 +2,5 @@ __pycache__/
 data/
 src/model/
 refer/
+.codex/
+AGENTS.md

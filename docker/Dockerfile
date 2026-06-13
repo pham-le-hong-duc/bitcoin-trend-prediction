@@ -11,9 +11,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy requirements first (this layer will be cached if requirements.txt doesn't change)
 COPY docker/requirements.txt .
 
-# Install Python dependencies with caching
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --upgrade pip && \
+# Install Python dependencies without requiring BuildKit
+RUN pip install --upgrade pip && \
     pip install -r requirements.txt && \
     python -m nltk.downloader stopwords
 

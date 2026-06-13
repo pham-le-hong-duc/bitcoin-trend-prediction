@@ -50,7 +50,7 @@ class FuturesMetricsBatch(HistoricalTimescaleBatch):
                     prefix="futures/um/daily/metrics/BTCUSDT",
                 )
             ],
-            base_start_date=datetime(2020, 9, 1, tzinfo=timezone.utc),
+            base_start_date=datetime(2026, 1, 1, tzinfo=timezone.utc),
             minio_bucket="binance",
         )
 

@@ -69,6 +69,8 @@ services:
     environment:
       MINIO_ROOT_USER: admin
       MINIO_ROOT_PASSWORD: password
+      CONSOLE_MINIO_ROOT_USER: admin
+      CONSOLE_MINIO_ROOT_PASSWORD: password
       TZ: UTC
     volumes:
       - ../data/minio:/data
@@ -101,6 +103,7 @@ services:
   airflow-webserver:
     image: thesis-pipeline:latest
     container_name: airflow-webserver
+    working_dir: /opt/airflow
     command: airflow webserver
     ports:
       - "8082:8080"
@@ -135,6 +138,7 @@ services:
   airflow-scheduler:
     image: thesis-pipeline:latest
     container_name: airflow-scheduler
+    working_dir: /opt/airflow
     command: airflow scheduler
     environment:
       - AIRFLOW__CORE__EXECUTOR=LocalExecutor
@@ -170,9 +174,13 @@ services:
   redpanda-init:
     image: thesis-pipeline:latest
     container_name: redpanda-init
+    working_dir: /opt/airflow
     command: python -m src.init.redpanda
     environment:
+      - PYTHONPATH=/opt/airflow:/opt/airflow/src
       - TZ=UTC
+    volumes:
+      - ../src:/opt/airflow/src
     depends_on:
       redpanda:
         condition: service_healthy
@@ -181,9 +189,13 @@ services:
   minio-init:
     image: thesis-pipeline:latest
     container_name: minio-init
+    working_dir: /opt/airflow
     command: python -m src.init.minio
     environment:
+      - PYTHONPATH=/opt/airflow:/opt/airflow/src
       - TZ=UTC
+    volumes:
+      - ../src:/opt/airflow/src
     depends_on:
       minio:
         condition: service_healthy
@@ -192,14 +204,18 @@ services:
   timescaledb-init:
     image: thesis-pipeline:latest
     container_name: timescaledb-init
+    working_dir: /opt/airflow
     command: python -m src.init.timescaledb
     environment:
+      - PYTHONPATH=/opt/airflow:/opt/airflow/src
       - TIMESCALE_HOST=timescaledb
       - TIMESCALE_PORT=5432
       - TIMESCALE_DB=base
       - TIMESCALE_USER=admin
       - TIMESCALE_PASSWORD=password
       - TZ=UTC
+    volumes:
+      - ../src:/opt/airflow/src
     depends_on:
       timescaledb:
         condition: service_healthy
@@ -208,21 +224,41 @@ services:
   airflow-init:
     image: thesis-pipeline:latest
     container_name: airflow-init
+    working_dir: /opt/airflow
     command: python -m src.init.airflow
     environment:
       - AIRFLOW__CORE__EXECUTOR=LocalExecutor
       - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
       - AIRFLOW__CORE__FERNET_KEY=46BKJoQYlPPOexq0OhDZnIlNepKFf87WFwLbfzqDDho=
       - AIRFLOW__CORE__LOAD_EXAMPLES=false
+      - PYTHONPATH=/opt/airflow:/opt/airflow/src
       - TZ=UTC
+    volumes:
+      - ../src:/opt/airflow/src
     depends_on:
       postgres:
         condition: service_healthy
     restart: "no"
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_INSTALL_PLUGINS=magnesium-wordcloud-panel
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ../refer/grafana/provisioning:/etc/grafana/provisioning
+      - ../refer/grafana/dashboards:/var/lib/grafana/dashboards
+    depends_on:
+      - timescaledb
 
 volumes:
   redpanda_data:
   postgres_data:
+  grafana-data:
 
 networks:
   default:

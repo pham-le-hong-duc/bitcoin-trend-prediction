@@ -48,7 +48,7 @@ class FuturesIndexPriceKlinesConsumer(Consumer):
             dedupe_columns=["effective_close_time"],
             warmup_messages=10,
             schema_name="dashboard",
-            key_column="open_time",
+            key_column="close_time",
             **kwargs,
         )
 
@@ -115,6 +115,10 @@ class FuturesIndexPriceKlinesConsumer(Consumer):
                     pl.col("high").max().alias("high"),
                     pl.col("low").min().alias("low"),
                     pl.col("close").last().alias("close"),
+                    pl.col("volume").sum().alias("volume"),
+                    pl.col("quote_volume").sum().alias("quote_volume"),
+                    pl.col("taker_buy_volume").sum().alias("taker_buy_volume"),
+                    pl.col("taker_buy_quote_volume").sum().alias("taker_buy_quote_volume"),
                 ]
             ).to_dict(as_series=False)
 
@@ -130,7 +134,7 @@ class FuturesIndexPriceKlinesConsumer(Consumer):
                 (window_ts - interval_ms) / 1000,
                 tz=timezone.utc,
             )
-            row["close_time"] = datetime.fromtimestamp((window_ts - 1) / 1000, tz=timezone.utc)
+            row["close_time"] = datetime.fromtimestamp(window_ts / 1000, tz=timezone.utc)
             return pl.DataFrame([row])
         except Exception as exc:
             print(f"Error in aggregate_window ({interval}): {exc}")
