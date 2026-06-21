@@ -19,6 +19,9 @@ from .base import RestAPI
 
 class BinanceFuturesMetrics(RestAPI):
     """Backfill Binance Futures metrics data using REST API."""
+    SOURCE_INTERVAL_MS = 5 * 60 * 1000
+    MAX_BUCKET_RETRIES = 5
+    RETRY_DELAY_SECONDS = 1
     
     def __init__(self, symbol="BTCUSDT", data_type="futures/um/daily/metrics/BTCUSDT"):
         """
@@ -37,158 +40,176 @@ class BinanceFuturesMetrics(RestAPI):
             unique_field="create_time",
             api_limit_days=7,
             gap_threshold_ms=301000
-        )    
-    def get_api_data(self, start_date, end_date):
-        """Fetch combined metrics from multiple Binance APIs with retry mechanism."""
+        )
+
+    def _iter_bucket_timestamps(self, start_date, end_date):
         start_ms = int(start_date.timestamp() * 1000)
         end_ms = int(end_date.timestamp() * 1000)
-        
-        max_retries = 5
-        retry_delay = 1  # Start with 1 second
-        
-        for retry_count in range(max_retries):
+
+        first_bucket_ms = (
+            ((start_ms + self.SOURCE_INTERVAL_MS - 1) // self.SOURCE_INTERVAL_MS)
+            * self.SOURCE_INTERVAL_MS
+        )
+
+        bucket_ms = first_bucket_ms
+        while bucket_ms <= end_ms:
+            yield bucket_ms
+            bucket_ms += self.SOURCE_INTERVAL_MS
+
+    def _extract_bucket_payload(self, payload_list, target_timestamp_ms):
+        if not payload_list:
+            return None
+
+        for item in payload_list:
+            if item.get("timestamp") == target_timestamp_ms:
+                return item
+
+        return None
+
+    def _fetch_bucket_metrics(self, target_timestamp_ms):
+        start_ms = target_timestamp_ms
+        end_ms = target_timestamp_ms + self.SOURCE_INTERVAL_MS - 1
+
+        open_interest_response = self.client.rest_api.open_interest_statistics(
+            symbol=self.symbol,
+            period=OpenInterestStatisticsPeriodEnum["PERIOD_5m"].value,
+            start_time=start_ms,
+            end_time=end_ms,
+            limit=10,
+        )
+        open_interest = open_interest_response.data() if open_interest_response else []
+        time.sleep(0.2)
+
+        top_accounts_response = self.client.rest_api.top_trader_long_short_ratio_accounts(
+            symbol=self.symbol,
+            period=TopTraderLongShortRatioAccountsPeriodEnum["PERIOD_5m"].value,
+            start_time=start_ms,
+            end_time=end_ms,
+            limit=10,
+        )
+        top_accounts_ratio = top_accounts_response.data() if top_accounts_response else []
+        time.sleep(0.2)
+
+        top_positions_response = self.client.rest_api.top_trader_long_short_ratio_positions(
+            symbol=self.symbol,
+            period=TopTraderLongShortRatioPositionsPeriodEnum["PERIOD_5m"].value,
+            start_time=start_ms,
+            end_time=end_ms,
+            limit=10,
+        )
+        top_positions_ratio = top_positions_response.data() if top_positions_response else []
+        time.sleep(0.2)
+
+        global_ratio_response = self.client.rest_api.long_short_ratio(
+            symbol=self.symbol,
+            period=LongShortRatioPeriodEnum["PERIOD_5m"].value,
+            start_time=start_ms,
+            end_time=end_ms,
+            limit=10,
+        )
+        global_ratio = global_ratio_response.data() if global_ratio_response else []
+        time.sleep(0.2)
+
+        taker_volume_response = self.client.rest_api.taker_buy_sell_volume(
+            symbol=self.symbol,
+            period=TakerBuySellVolumePeriodEnum["PERIOD_5m"].value,
+            start_time=start_ms,
+            end_time=end_ms,
+            limit=10,
+        )
+        taker_volume = taker_volume_response.data() if taker_volume_response else []
+
+        return {
+            "open_interest": self._extract_bucket_payload(open_interest, target_timestamp_ms),
+            "top_accounts_ratio": self._extract_bucket_payload(top_accounts_ratio, target_timestamp_ms),
+            "top_positions_ratio": self._extract_bucket_payload(top_positions_ratio, target_timestamp_ms),
+            "global_ratio": self._extract_bucket_payload(global_ratio, target_timestamp_ms),
+            "taker_volume": self._extract_bucket_payload(taker_volume, target_timestamp_ms),
+        }
+
+    def _poll_bucket_until_complete(self, target_timestamp_ms):
+        for retry_count in range(self.MAX_BUCKET_RETRIES):
             try:
-                open_interest_response = self.client.rest_api.open_interest_statistics(
-                    symbol=self.symbol,
-                    period=OpenInterestStatisticsPeriodEnum["PERIOD_5m"].value,
-                    start_time=start_ms,
-                    end_time=end_ms,
-                    limit=500
-                )
-                open_interest = open_interest_response.data() if open_interest_response else []
-                time.sleep(0.2)
-                
-                top_accounts_response = self.client.rest_api.top_trader_long_short_ratio_accounts(
-                    symbol=self.symbol,
-                    period=TopTraderLongShortRatioAccountsPeriodEnum["PERIOD_5m"].value,
-                    start_time=start_ms,
-                    end_time=end_ms,
-                    limit=500
-                )
-                top_accounts_ratio = top_accounts_response.data() if top_accounts_response else []
-                time.sleep(0.2)
-                
-                # Fetch Top Trader Long/Short Ratio (Positions)
-                top_positions_response = self.client.rest_api.top_trader_long_short_ratio_positions(
-                    symbol=self.symbol,
-                    period=TopTraderLongShortRatioPositionsPeriodEnum["PERIOD_5m"].value,
-                    start_time=start_ms,
-                    end_time=end_ms,
-                    limit=500
-                )
-                top_positions_ratio = top_positions_response.data() if top_positions_response else []
-                time.sleep(0.2)
-                
-                # Fetch Global Long/Short Ratio
-                global_ratio_response = self.client.rest_api.long_short_ratio(
-                    symbol=self.symbol,
-                    period=LongShortRatioPeriodEnum["PERIOD_5m"].value,
-                    start_time=start_ms,
-                    end_time=end_ms,
-                    limit=500
-                )
-                global_ratio = global_ratio_response.data() if global_ratio_response else []
-                time.sleep(0.2)
-                
-                taker_volume_response = self.client.rest_api.taker_buy_sell_volume(
-                    symbol=self.symbol,
-                    period=TakerBuySellVolumePeriodEnum["PERIOD_5m"].value,
-                    start_time=start_ms,
-                    end_time=end_ms,
-                    limit=500
-                )
-                taker_volume = taker_volume_response.data() if taker_volume_response else []
-                
-                combined_data = {
-                    'open_interest': open_interest,
-                    'top_accounts_ratio': top_accounts_ratio,
-                    'top_positions_ratio': top_positions_ratio,
-                    'global_ratio': global_ratio,
-                    'taker_volume': taker_volume
-                }
-                
-                if all(combined_data.values()):
-                    yield combined_data
-                break
-                
+                combined_data = self._fetch_bucket_metrics(target_timestamp_ms)
+                missing_payloads = [
+                    payload_name
+                    for payload_name, payload in combined_data.items()
+                    if not isinstance(payload, dict)
+                ]
+                if not missing_payloads:
+                    return combined_data
+
+                if retry_count < self.MAX_BUCKET_RETRIES - 1:
+                    print(
+                        f"Bucket {target_timestamp_ms}: missing "
+                        f"{', '.join(missing_payloads)} "
+                        f"(attempt {retry_count + 1}/{self.MAX_BUCKET_RETRIES}), retrying..."
+                    )
+                    time.sleep(self.RETRY_DELAY_SECONDS)
             except Exception as e:
                 error_msg = str(e)
                 if '-1003' in error_msg or 'Too many requests' in error_msg:
-                    if retry_count < max_retries - 1:
-                        print(f"Rate limit hit (attempt {retry_count + 1}/{max_retries}). Sleeping 60s...")
+                    if retry_count < self.MAX_BUCKET_RETRIES - 1:
+                        print(
+                            f"Bucket {target_timestamp_ms}: rate limit hit "
+                            f"(attempt {retry_count + 1}/{self.MAX_BUCKET_RETRIES}), sleeping 60s..."
+                        )
                         time.sleep(60)
                         continue
-                
-                if retry_count < max_retries - 1:
-                    print(f"Request failed (attempt {retry_count + 1}/{max_retries}): {e}")
-                    print(f"Retrying in {retry_delay} seconds...")
-                    time.sleep(retry_delay)
-                    retry_delay *= 2
+
+                if retry_count < self.MAX_BUCKET_RETRIES - 1:
+                    print(
+                        f"Bucket {target_timestamp_ms}: request failed "
+                        f"(attempt {retry_count + 1}/{self.MAX_BUCKET_RETRIES}): {e}"
+                    )
+                    time.sleep(self.RETRY_DELAY_SECONDS * (2 ** retry_count))
                 else:
-                    print(f"Max retries reached. Skipping this gap.")
-                    return
+                    print(f"Bucket {target_timestamp_ms}: max retries reached, skipping.")
+                    return None
+
+        return None
+
+    def get_api_data(self, start_date, end_date):
+        """Fetch metrics bucket-by-bucket, retrying until each bucket is complete."""
+        for bucket_timestamp_ms in self._iter_bucket_timestamps(start_date, end_date):
+            combined_data = self._poll_bucket_until_complete(bucket_timestamp_ms)
+            if combined_data:
+                yield combined_data
     
     def transform_data(self, api_response):
-        """Transform combined metrics API response to DataFrame."""
+        """Transform one complete 5m metrics bucket to DataFrame."""
         if not api_response:
             return pl.DataFrame()
         
-        api1_list = api_response.get('open_interest', [])
-        api2_list = api_response.get('top_accounts_ratio', [])
-        api3_list = api_response.get('top_positions_ratio', [])
-        api4_list = api_response.get('global_ratio', [])
-        api5_list = api_response.get('taker_volume', [])
-        
-        # Convert to dicts indexed by timestamp for merging
-        api1_dict = {item.get('timestamp'): item for item in api1_list} if api1_list else {}
-        api2_dict = {item.get('timestamp'): item for item in api2_list} if api2_list else {}
-        api3_dict = {item.get('timestamp'): item for item in api3_list} if api3_list else {}
-        api4_dict = {item.get('timestamp'): item for item in api4_list} if api4_list else {}
-        api5_dict = {item.get('timestamp'): item for item in api5_list} if api5_list else {}
-        
-        # Only keep timestamps that exist in all 5 API responses.
-        all_timestamps = (
-            set(api1_dict.keys())
-            & set(api2_dict.keys())
-            & set(api3_dict.keys())
-            & set(api4_dict.keys())
-            & set(api5_dict.keys())
-        )
-        
-        transformed_records = []
-        for timestamp in sorted(all_timestamps):
-            if timestamp is None:
-                continue
-                
-            api1 = api1_dict.get(timestamp)
-            api2 = api2_dict.get(timestamp)
-            api3 = api3_dict.get(timestamp)
-            api4 = api4_dict.get(timestamp)
-            api5 = api5_dict.get(timestamp)
+        api1 = api_response.get('open_interest')
+        api2 = api_response.get('top_accounts_ratio')
+        api3 = api_response.get('top_positions_ratio')
+        api4 = api_response.get('global_ratio')
+        api5 = api_response.get('taker_volume')
 
-            if not all([api1, api2, api3, api4, api5]):
-                continue
+        if not all([api1, api2, api3, api4, api5]):
+            return pl.DataFrame()
 
-            required_checks = [
-                (api1, ['sumOpenInterest', 'sumOpenInterestValue'], 'open_interest'),
-                (api2, ['longShortRatio'], 'top_accounts_ratio'),
-                (api3, ['longShortRatio'], 'top_positions_ratio'),
-                (api4, ['longShortRatio'], 'global_ratio'),
-                (api5, ['buySellRatio'], 'taker_volume'),
-            ]
-            missing_required = False
-            for payload, required_fields, payload_name in required_checks:
-                missing_fields = [field for field in required_fields if field not in payload]
-                if missing_fields:
-                    print(f"Skipping timestamp {timestamp}: {payload_name} missing {missing_fields}")
-                    missing_required = True
-                    break
+        timestamp = api1.get("timestamp")
+        if timestamp is None:
+            return pl.DataFrame()
 
-            if missing_required:
-                continue
-            
-            record = {
-                "create_time": int(timestamp) if timestamp else None,
+        required_checks = [
+            (api1, ['sumOpenInterest', 'sumOpenInterestValue'], 'open_interest'),
+            (api2, ['longShortRatio'], 'top_accounts_ratio'),
+            (api3, ['longShortRatio'], 'top_positions_ratio'),
+            (api4, ['longShortRatio'], 'global_ratio'),
+            (api5, ['buySellRatio'], 'taker_volume'),
+        ]
+        for payload, required_fields, payload_name in required_checks:
+            missing_fields = [field for field in required_fields if field not in payload]
+            if missing_fields:
+                print(f"Skipping timestamp {timestamp}: {payload_name} missing {missing_fields}")
+                return pl.DataFrame()
+
+        transformed_records = [
+            {
+                "create_time": int(timestamp),
                 "symbol": self.symbol,
                 "sum_open_interest": float(api1['sumOpenInterest']),
                 "sum_open_interest_value": float(api1['sumOpenInterestValue']),
@@ -197,7 +218,7 @@ class BinanceFuturesMetrics(RestAPI):
                 "count_long_short_ratio": float(api4['longShortRatio']),
                 "sum_taker_long_short_vol_ratio": float(api5['buySellRatio']),
             }
-            transformed_records.append(record)
+        ]
 
         if not transformed_records:
             return pl.DataFrame()
