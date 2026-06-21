@@ -21,14 +21,43 @@ try:
 except ImportError:
     nltk_stopwords = None
 
-from src.streaming.consumer.timescaledb.consumer import Consumer
+from .base import Consumer
 
 
 URL_PATTERN = re.compile(r"https?://\S+|www\.\S+")
 CUSTOM_STOPWORDS = {
+    "able",
+    "actual",
+    "already",
+    "also",
+    "another",
+    "anyone",
+    "anything",
+    "around",
+    "could",
+    "don",
+    "even",
+    "every",
+    "get",
+    "got",
     "https",
     "http",
+    "many",
+    "much",
+    "now",
+    "one",
+    "really",
+    "see",
+    "since",
+    "someone",
+    "something",
+    "thing",
+    "things",
+    "use",
     "utm",
+    "way",
+    "will",
+    "would",
     "x200b",
     "xpost",
     "rbitcoin",
@@ -69,6 +98,7 @@ class SentimentConsumer(Consumer):
             }
         super().__init__(
             topics=["reddit-submissions", "reddit-comments", "reddit-status"],
+            group_id="timescaledb-dashboard-reddit-sentiment",
             data_type="reddit-sentiment",
             timestamp_field="event_ts_ms",
             intervals=["1h", "4h", "1d"],
@@ -127,6 +157,11 @@ class SentimentConsumer(Consumer):
 
     def can_process_boundary(self, boundary_ts_ms, max_ts):
         return boundary_ts_ms in self.pending_status_boundaries
+
+    def boundary_ready_ts(self, max_ts):
+        if not self.pending_status_boundaries:
+            return max_ts
+        return max(max_ts, max(self.pending_status_boundaries))
 
     def on_boundary_processed(self, boundary_ts_ms):
         self.pending_status_boundaries.discard(boundary_ts_ms)
@@ -219,11 +254,17 @@ class SentimentConsumer(Consumer):
             .replace("‘", "'")
             .replace("\u200b", " ")
         )
+        cleaned_chars = []
+        for char in normalized:
+            category = unicodedata.category(char)
+            if char != "'" and (category.startswith("P") or category.startswith("S")):
+                cleaned_chars.append(" ")
+            else:
+                cleaned_chars.append(char)
+
         cleaned_tokens = []
-        for raw_token in normalized.split():
-            token = "".join(
-                ch for ch in raw_token if ch == "'" or not unicodedata.category(ch).startswith("P")
-            ).strip()
+        for token in "".join(cleaned_chars).split():
+            token = token.strip("'")
             if not token:
                 continue
             if token in self.stopwords:

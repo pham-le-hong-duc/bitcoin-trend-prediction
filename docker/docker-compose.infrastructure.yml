@@ -79,6 +79,28 @@ services:
       timeout: 5s
       retries: 5
 
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: password
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_AUTH_DISABLE_LOGIN_FORM: "false"
+      GF_INSTALL_PLUGINS: magnesium-wordcloud-panel
+      TZ: UTC
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ../src/dashboard/provisioning:/etc/grafana/provisioning
+      - ../src/dashboard/dashboards:/var/lib/grafana/dashboards
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    restart: unless-stopped
+
   # ========================================
   # INFRASTRUCTURE: ORCHESTRATION
   # ========================================
@@ -221,6 +243,7 @@ services:
     restart: "no"
 
 volumes:
+  grafana_data:
   redpanda_data:
   postgres_data:
 

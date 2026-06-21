@@ -45,6 +45,27 @@ class Download:
         
         signal.signal(signal.SIGINT, self._handle_shutdown_signal)
         signal.signal(signal.SIGTERM, self._handle_shutdown_signal)
+
+    @staticmethod
+    def _drop_embedded_header_rows(dataframe: pl.DataFrame) -> pl.DataFrame:
+        """Drop rows whose values are exactly the column names repeated."""
+        if dataframe.is_empty():
+            return dataframe
+
+        header_checks = [
+            pl.col(column).cast(pl.Utf8, strict=False).eq(pl.lit(column))
+            for column in dataframe.columns
+        ]
+        if not header_checks:
+            return dataframe
+
+        return (
+            dataframe.with_columns(
+                pl.all_horizontal(header_checks).alias("_is_embedded_header")
+            )
+            .filter(~pl.col("_is_embedded_header"))
+            .drop("_is_embedded_header")
+        )
     
     # ==================== Signal Handling ====================
     
@@ -149,6 +170,8 @@ class Download:
                         if not self.column_names:
                             raise ValueError("column_names must be provided when has_header=False")
                         dataframe = pl.read_csv(csv_file, has_header=False, new_columns=self.column_names)
+
+                    dataframe = self._drop_embedded_header_rows(dataframe)
                     
                     if dataframe.is_empty():
                         return False

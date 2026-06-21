@@ -2,7 +2,7 @@
 Binance Futures Mark Price Klines Consumer
 Kafka → MinIO (Instant mode for low volume)
 """
-from src.streaming.consumer.minio.consumer import Consumer
+from src.streaming.consumer.minio.base import Consumer
 
 
 def main():

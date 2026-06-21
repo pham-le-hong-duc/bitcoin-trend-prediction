@@ -11,14 +11,43 @@ try:
 except ImportError:
     nltk_stopwords = None
 
-from src.batch.timescaledb.base import HistoricalSource, HistoricalTimescaleBatch, INTERVAL_TO_MS
+from .base import HistoricalSource, HistoricalTimescaleBatch, INTERVAL_TO_MS
 
 
 URL_PATTERN = re.compile(r"https?://\S+|www\.\S+")
 CUSTOM_STOPWORDS = {
+    "able",
+    "actual",
+    "already",
+    "also",
+    "another",
+    "anyone",
+    "anything",
+    "around",
+    "could",
+    "don",
+    "even",
+    "every",
+    "get",
+    "got",
     "https",
     "http",
+    "many",
+    "much",
+    "now",
+    "one",
+    "really",
+    "see",
+    "since",
+    "someone",
+    "something",
+    "thing",
+    "things",
+    "use",
     "utm",
+    "way",
+    "will",
+    "would",
     "x200b",
     "xpost",
     "rbitcoin",
@@ -60,7 +89,7 @@ class SentimentBatch(HistoricalTimescaleBatch):
                     file_prefix="RC",
                 ),
             ],
-            base_start_date=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            base_start_date=datetime(2020, 1, 1, tzinfo=timezone.utc),
             minio_bucket="reddit",
         )
         try:
@@ -90,7 +119,7 @@ class SentimentBatch(HistoricalTimescaleBatch):
             )
             .with_columns(
                 pl.lit("submission").alias("source"),
-                (pl.col("created_utc").cast(pl.Int64) * 1000).alias("event_ts_ms"),
+                self._normalize_epoch_to_ms_expr("created_utc", alias="event_ts_ms"),
                 pl.col("sentiment").cast(pl.Int64),
                 (
                     pl.coalesce([pl.col("title").cast(pl.Utf8), pl.lit("")])
@@ -112,7 +141,7 @@ class SentimentBatch(HistoricalTimescaleBatch):
             )
             .with_columns(
                 pl.lit("comment").alias("source"),
-                (pl.col("created_utc").cast(pl.Int64) * 1000).alias("event_ts_ms"),
+                self._normalize_epoch_to_ms_expr("created_utc", alias="event_ts_ms"),
                 pl.col("sentiment").cast(pl.Int64),
                 pl.coalesce([pl.col("body").cast(pl.Utf8), pl.lit("")]).alias("text"),
             )
@@ -128,13 +157,17 @@ class SentimentBatch(HistoricalTimescaleBatch):
         )
         cleaned_chars = []
         for char in lowered:
-            if char != "'" and unicodedata.category(char).startswith("P"):
+            category = unicodedata.category(char)
+            if char != "'" and (category.startswith("P") or category.startswith("S")):
                 cleaned_chars.append(" ")
             else:
                 cleaned_chars.append(char)
 
         tokens = []
         for token in "".join(cleaned_chars).split():
+            token = token.strip("'")
+            if not token:
+                continue
             if token in self.stopwords:
                 continue
             if token in CUSTOM_STOPWORDS:

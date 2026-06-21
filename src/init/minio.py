@@ -9,13 +9,15 @@ MINIO_SECRET_KEY = "password"
 
 BUCKETS = {
     "binance": [
-        "futures/um/monthly/fundingRate/BTCUSDT/",
+        # "futures/um/monthly/fundingRate/BTCUSDT/",
         "futures/um/daily/aggTrades/BTCUSDT/",
-        "futures/um/daily/indexPriceKlines/BTCUSDT/1m/",
-        "futures/um/daily/markPriceKlines/BTCUSDT/1m/",
+        "futures/um/daily/klines/BTCUSDT/1m/",
+        # "futures/um/daily/indexPriceKlines/BTCUSDT/1m/",
+        # "futures/um/daily/markPriceKlines/BTCUSDT/1m/",
         "futures/um/daily/premiumIndexKlines/BTCUSDT/1m/",
         "futures/um/daily/metrics/BTCUSDT/",
-        "spot/daily/aggTrades/BTCUSDT/",
+        # "spot/daily/aggTrades/BTCUSDT/",
+        "spot/daily/klines/BTCUSDT/1m/",
     ],
     "reddit": [
         "comments/",

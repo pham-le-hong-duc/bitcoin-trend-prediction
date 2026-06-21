@@ -16,18 +16,18 @@ TOPICS = [
             "cleanup.policy": "delete"
         }
     },
+    # {
+    #     "name": "binance-spot-aggTrades",
+    #     "partitions": 6,
+    #     "replication": 1,
+    #     "config": {
+    #         "retention.ms": "604800000",
+    #         "compression.type": "lz4",
+    #         "cleanup.policy": "delete"
+    #     }
+    # },
     {
-        "name": "binance-spot-aggTrades",
-        "partitions": 6,
-        "replication": 1,
-        "config": {
-            "retention.ms": "604800000",
-            "compression.type": "lz4",
-            "cleanup.policy": "delete"
-        }
-    },
-    {
-        "name": "binance-futures-indexPriceKlines",
+        "name": "binance-futures-klines",
         "partitions": 1,
         "replication": 1,
         "config": {
@@ -36,16 +36,26 @@ TOPICS = [
             "cleanup.policy": "delete"
         }
     },
-    {
-        "name": "binance-futures-markPriceKlines",
-        "partitions": 1,
-        "replication": 1,
-        "config": {
-            "retention.ms": "604800000",
-            "compression.type": "lz4",
-            "cleanup.policy": "delete"
-        }
-    },
+    # {
+    #     "name": "binance-futures-indexPriceKlines",
+    #     "partitions": 1,
+    #     "replication": 1,
+    #     "config": {
+    #         "retention.ms": "604800000",
+    #         "compression.type": "lz4",
+    #         "cleanup.policy": "delete"
+    #     }
+    # },
+    # {
+    #     "name": "binance-futures-markPriceKlines",
+    #     "partitions": 1,
+    #     "replication": 1,
+    #     "config": {
+    #         "retention.ms": "604800000",
+    #         "compression.type": "lz4",
+    #         "cleanup.policy": "delete"
+    #     }
+    # },
     {
         "name": "binance-futures-premiumIndexKlines",
         "partitions": 1,
@@ -66,12 +76,22 @@ TOPICS = [
             "cleanup.policy": "delete"
         }
     },
+    # {
+    #     "name": "binance-futures-fundingRate",
+    #     "partitions": 1,
+    #     "replication": 1,
+    #     "config": {
+    #         "retention.ms": "2592000000",
+    #         "compression.type": "lz4",
+    #         "cleanup.policy": "delete"
+    #     }
+    # },
     {
-        "name": "binance-futures-fundingRate",
+        "name": "binance-spot-klines",
         "partitions": 1,
         "replication": 1,
         "config": {
-            "retention.ms": "2592000000",
+            "retention.ms": "604800000",
             "compression.type": "lz4",
             "cleanup.policy": "delete"
         }

@@ -7,10 +7,13 @@
 # 2. consumer.minio-up  -> Start MinIO consumer (docker/docker-compose.streaming.consumer.minio.yml)
 # 3. producer-up        -> Start streaming producer and wait for reddit first-run status
 # 4. batch_minio        -> Trigger batch_minio DAG (dags/batch_minio.py)
-# 5. consumer.timescaledb-up -> Start TimescaleDB dashboard consumer (docker/docker-compose.streaming.consumer.timescaledb.yml)
+# 5. consumer.timescaledb-up -> Start TimescaleDB dashboard + featurestore consumers (docker/docker-compose.streaming.consumer.timescaledb.yml)
 # 6. batch_timescaledb  -> Trigger batch_timescaledb DAG (dags/batch_timescaledb.py)
 
 .PHONY: infra-up producer-up consumer.minio-up batch_minio consumer.timescaledb-up batch_timescaledb up down start-all build
+
+CLOUDFLARED_LOCAL_URL := http://localhost:3000
+CLOUDFLARED_WORKER_URL := https://thesis-redirect.honghongduc0102.workers.dev
 
 # Build target
 build:
@@ -28,6 +31,7 @@ infra-up:
 	@echo "STEP 1: Starting infrastructure..."
 	@echo "========================================================="
 	docker-compose -f docker/docker-compose.infrastructure.yml up -d --force-recreate
+	@powershell -NoProfile -Command "& { \$$logDir = Join-Path (Get-Location) '.tmp'; \$$logFile = Join-Path \$$logDir 'cloudflared-infra.log'; New-Item -ItemType Directory -Force \$$logDir | Out-Null; if (Test-Path \$$logFile) { Remove-Item \$$logFile -Force }; Start-Process cloudflared -ArgumentList @('tunnel', '--url', '$(CLOUDFLARED_LOCAL_URL)', '--logfile', \$$logFile) -WindowStyle Hidden | Out-Null; \$$publicUrl = \$$null; \$$deadline = (Get-Date).AddSeconds(30); do { Start-Sleep -Seconds 1; if (Test-Path \$$logFile) { \$$match = Select-String -Path \$$logFile -Pattern 'https://[-a-zA-Z0-9]+\.trycloudflare\.com' | Select-Object -Last 1; if (\$$match) { \$$publicUrl = \$$match.Matches[0].Value } } } while ((-not \$$publicUrl) -and ((Get-Date) -lt \$$deadline)); if (-not \$$publicUrl) { Write-Host '[ERROR] Quick Tunnel URL not found.' -ForegroundColor Red; exit 1 }; \$$dashboardUrl = \$$publicUrl.TrimEnd('/') + '/dashboards'; Invoke-RestMethod -Method Post -Uri '$(CLOUDFLARED_WORKER_URL)' -ContentType 'application/json' -Body (@{ url = \$$dashboardUrl } | ConvertTo-Json -Compress) | Out-Null; Write-Host ('[OK] Quick Tunnel URL: ' + \$$publicUrl) -ForegroundColor Green; Write-Host ('[OK] Dashboard URL: ' + \$$dashboardUrl) -ForegroundColor Green; Write-Host ('[OK] Worker updated: $(CLOUDFLARED_WORKER_URL)') -ForegroundColor Green }"
 	@echo "[OK] Infrastructure started!"
 
 
@@ -61,10 +65,10 @@ batch_minio:
 # TimescaleDB consumer targets
 consumer.timescaledb-up:
 	@echo "========================================================="
-	@echo "STEP 5: Starting TimescaleDB consumer..."
+	@echo "STEP 5: Starting TimescaleDB consumers..."
 	@echo "========================================================="
-	docker-compose -f docker/docker-compose.infrastructure.yml -f docker/docker-compose.streaming.consumer.timescaledb.yml up -d --force-recreate streaming-consumer-timescaledb-dashboard
-	@echo "[OK] TimescaleDB consumer started!"
+	docker-compose -f docker/docker-compose.infrastructure.yml -f docker/docker-compose.streaming.consumer.timescaledb.yml up -d --force-recreate streaming-consumer-timescaledb-dashboard streaming-consumer-timescaledb-featurestore
+	@echo "[OK] TimescaleDB consumers started!"
 
 # Airflow TimescaleDB DAG targets
 batch_timescaledb:
@@ -79,5 +83,6 @@ up: infra-up consumer.minio-up producer-up batch_minio consumer.timescaledb-up b
 
 down:
 	@docker-compose -f docker/docker-compose.infrastructure.yml -f docker/docker-compose.streaming.producer.yml -f docker/docker-compose.streaming.consumer.minio.yml -f docker/docker-compose.streaming.consumer.timescaledb.yml down
+	@powershell -NoProfile -Command "& { Get-Process cloudflared -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; Write-Host '[OK] cloudflared stopped if running.' -ForegroundColor Green }"
 
 start-all: build up

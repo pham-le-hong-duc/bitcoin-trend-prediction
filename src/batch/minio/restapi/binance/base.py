@@ -59,6 +59,81 @@ class RestAPI(ABC):
         self.minio_writer = MinIOWriter()
         
         self._init_binance_client()
+
+    @staticmethod
+    def _drop_embedded_header_rows(df: pl.DataFrame) -> pl.DataFrame:
+        """Drop rows whose values are exactly the column names repeated."""
+        if df.is_empty():
+            return df
+
+        header_checks = [
+            pl.col(column).cast(pl.Utf8, strict=False).eq(pl.lit(column))
+            for column in df.columns
+        ]
+        if not header_checks:
+            return df
+
+        return (
+            df.with_columns(pl.all_horizontal(header_checks).alias("_is_embedded_header"))
+            .filter(~pl.col("_is_embedded_header"))
+            .drop("_is_embedded_header")
+        )
+
+    @staticmethod
+    def _to_timestamp_ms(value):
+        """Convert int/string/datetime timestamp values to epoch milliseconds."""
+        if value is None:
+            return None
+
+        if isinstance(value, str):
+            value = value.strip()
+            if not value:
+                return None
+
+            try:
+                return int(value)
+            except ValueError:
+                dt = datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
+                dt = dt.replace(tzinfo=timezone.utc)
+                return int(dt.timestamp() * 1000)
+
+        if hasattr(value, "timestamp"):
+            return int(value.timestamp() * 1000)
+
+        return int(value)
+
+    def _prepare_gap_detection_df(self, df: pl.DataFrame) -> pl.DataFrame | None:
+        """Remove embedded headers and rows with invalid timestamps before gap detection."""
+        if df is None or df.is_empty():
+            return None
+
+        df = self._drop_embedded_header_rows(df)
+        if df.is_empty() or self.timestamp_field not in df.columns:
+            return None
+
+        timestamp_expr = pl.col(self.timestamp_field)
+        if df.schema[self.timestamp_field] == pl.Utf8:
+            timestamp_expr = (
+                pl.when(pl.col(self.timestamp_field).str.contains(r"^\d+$"))
+                .then(pl.col(self.timestamp_field).cast(pl.Int64, strict=False))
+                .otherwise(
+                    pl.col(self.timestamp_field)
+                    .str.strptime(pl.Datetime, "%Y-%m-%d %H:%M:%S", strict=False)
+                    .dt.timestamp("ms")
+                )
+            )
+        elif df.schema[self.timestamp_field] == pl.Datetime:
+            timestamp_expr = pl.col(self.timestamp_field).dt.timestamp("ms")
+        elif df.schema[self.timestamp_field] == pl.Date:
+            timestamp_expr = pl.col(self.timestamp_field).cast(pl.Datetime).dt.timestamp("ms")
+        else:
+            timestamp_expr = pl.col(self.timestamp_field).cast(pl.Int64, strict=False)
+
+        cleaned = (
+            df.with_columns(timestamp_expr.alias(self.timestamp_field))
+            .filter(pl.col(self.timestamp_field).is_not_null())
+        )
+        return cleaned if not cleaned.is_empty() else None
     
     def _init_binance_client(self):
         """Initialize Binance API client."""
@@ -239,6 +314,8 @@ class RestAPI(ABC):
                 # Read timestamp columns from MinIO
                 current_df = self.minio_writer.read_parquet(current_path)
                 next_df = self.minio_writer.read_parquet(next_path)
+                current_df = self._prepare_gap_detection_df(current_df)
+                next_df = self._prepare_gap_detection_df(next_df)
                 
                 if current_df is None or next_df is None:
                     continue
@@ -246,34 +323,15 @@ class RestAPI(ABC):
                 # Get last timestamp of current file and first timestamp of next file
                 current_end = current_df[timestamp_field].max()
                 next_start = next_df[timestamp_field].min()
+                if current_end is None or next_start is None:
+                    continue
                 
                 # Auto-detect timestamp unit
-                is_microseconds = current_end > 10**15 if isinstance(current_end, int) else False
-                
-                # Convert to milliseconds - handle int, string, and datetime
-                if isinstance(current_end, str):
-                    try:
-                        dt = datetime.strptime(current_end, '%Y-%m-%d %H:%M:%S')
-                        dt = dt.replace(tzinfo=timezone.utc)
-                        current_end_ms = int(dt.timestamp() * 1000)
-                    except ValueError:
-                        current_end_ms = int(current_end)
-                elif hasattr(current_end, 'timestamp'):
-                    current_end_ms = int(current_end.timestamp() * 1000)
-                else:
-                    current_end_ms = int(current_end)
-                
-                if isinstance(next_start, str):
-                    try:
-                        dt = datetime.strptime(next_start, '%Y-%m-%d %H:%M:%S')
-                        dt = dt.replace(tzinfo=timezone.utc)
-                        next_start_ms = int(dt.timestamp() * 1000)
-                    except ValueError:
-                        next_start_ms = int(next_start)
-                elif hasattr(next_start, 'timestamp'):
-                    next_start_ms = int(next_start.timestamp() * 1000)
-                else:
-                    next_start_ms = int(next_start)
+                current_end_ms = self._to_timestamp_ms(current_end)
+                next_start_ms = self._to_timestamp_ms(next_start)
+                if current_end_ms is None or next_start_ms is None:
+                    continue
+                is_microseconds = current_end_ms > 10**15
                 
                 # Normalize to milliseconds if microseconds
                 if is_microseconds:
@@ -291,7 +349,8 @@ class RestAPI(ABC):
                         'between_files': f"{current_date}.parquet → {next_date}.parquet"
                     })
                     
-            except Exception:
+            except Exception as exc:
+                print(f"Warning: failed boundary gap detection for {current_path}: {exc}")
                 continue
         
         return gaps
@@ -304,6 +363,7 @@ class RestAPI(ABC):
         for date_str, object_path in file_dates:
             try:
                 df = self.minio_writer.read_parquet(object_path)
+                df = self._prepare_gap_detection_df(df)
                 if df is None:
                     continue
                 
@@ -320,7 +380,9 @@ class RestAPI(ABC):
                 # Auto-detect timestamp unit (milliseconds vs microseconds)
                 # Timestamps > 10^15 are likely microseconds (16+ digits)
                 # Timestamps <= 10^15 are likely milliseconds (13 digits) or seconds (10 digits)
-                first_ts = timestamps[0]
+                first_ts = self._to_timestamp_ms(timestamps[0])
+                if first_ts is None:
+                    continue
                 is_microseconds = first_ts > 10**15
                 
                 # Adjust gap threshold based on timestamp unit
@@ -328,29 +390,10 @@ class RestAPI(ABC):
                 
                 for i in range(len(timestamps) - 1):
                     # Convert to milliseconds - handle int, string, and datetime
-                    if isinstance(timestamps[i], str):
-                        try:
-                            dt = datetime.strptime(timestamps[i], '%Y-%m-%d %H:%M:%S')
-                            dt = dt.replace(tzinfo=timezone.utc)
-                            ts_i_ms = int(dt.timestamp() * 1000)
-                        except ValueError:
-                            ts_i_ms = int(timestamps[i])
-                    elif hasattr(timestamps[i], 'timestamp'):
-                        ts_i_ms = int(timestamps[i].timestamp() * 1000)
-                    else:
-                        ts_i_ms = int(timestamps[i])
-                    
-                    if isinstance(timestamps[i+1], str):
-                        try:
-                            dt = datetime.strptime(timestamps[i+1], '%Y-%m-%d %H:%M:%S')
-                            dt = dt.replace(tzinfo=timezone.utc)
-                            ts_i1_ms = int(dt.timestamp() * 1000)
-                        except ValueError:
-                            ts_i1_ms = int(timestamps[i+1])
-                    elif hasattr(timestamps[i+1], 'timestamp'):
-                        ts_i1_ms = int(timestamps[i+1].timestamp() * 1000)
-                    else:
-                        ts_i1_ms = int(timestamps[i+1])
+                    ts_i_ms = self._to_timestamp_ms(timestamps[i])
+                    ts_i1_ms = self._to_timestamp_ms(timestamps[i + 1])
+                    if ts_i_ms is None or ts_i1_ms is None:
+                        continue
                     
                     gap_duration = ts_i1_ms - ts_i_ms
                     if gap_duration > adjusted_threshold:
@@ -367,7 +410,8 @@ class RestAPI(ABC):
                             'inside_file': f"{date_str}.parquet"
                         })
                         
-            except Exception:
+            except Exception as exc:
+                print(f"Warning: failed internal gap detection for {object_path}: {exc}")
                 continue
         
         return gaps
@@ -383,35 +427,20 @@ class RestAPI(ABC):
         try:
             latest_date, latest_path = file_dates[-1]
             latest_df = self.minio_writer.read_parquet(latest_path)
+            latest_df = self._prepare_gap_detection_df(latest_df)
             
             if latest_df is None:
                 return []
             
             latest_timestamp = latest_df[timestamp_field].max()
+            if latest_timestamp is None:
+                return []
             
             # Auto-detect timestamp unit
-            is_microseconds = latest_timestamp > 10**15 if isinstance(latest_timestamp, int) else False
-            
-            # Convert to milliseconds - handle multiple types
-            if isinstance(latest_timestamp, str):
-                # Parse string datetime to milliseconds (for metrics)
-                try:
-                    dt = datetime.strptime(latest_timestamp, '%Y-%m-%d %H:%M:%S')
-                    dt = dt.replace(tzinfo=timezone.utc)
-                    latest_timestamp_ms = int(dt.timestamp() * 1000)
-                except ValueError as e:
-                    print(f"Warning: Cannot parse timestamp '{latest_timestamp}' with format '%Y-%m-%d %H:%M:%S': {e}")
-                    # Try to convert directly if it's a string representation of int
-                    try:
-                        latest_timestamp_ms = int(latest_timestamp)
-                    except:
-                        return []
-            elif hasattr(latest_timestamp, 'timestamp'):
-                # Handle datetime objects
-                latest_timestamp_ms = int(latest_timestamp.timestamp() * 1000)
-            else:
-                # Already milliseconds (int) - most common case
-                latest_timestamp_ms = int(latest_timestamp)
+            latest_timestamp_ms = self._to_timestamp_ms(latest_timestamp)
+            if latest_timestamp_ms is None:
+                return []
+            is_microseconds = latest_timestamp_ms > 10**15
             
             # Normalize to milliseconds if microseconds
             if is_microseconds:

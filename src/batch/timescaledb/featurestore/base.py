@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
-from typing import Dict, Iterable, List
+from typing import Callable, Dict, Iterable, List
 
 import polars as pl
 
@@ -31,6 +31,10 @@ class HistoricalSource:
 
 
 class HistoricalTimescaleBatch(ABC):
+    FeatureStep = Callable[[pl.DataFrame], pl.DataFrame]
+    SECOND_THRESHOLD = 100_000_000_000
+    MICROSECOND_THRESHOLD = 10_000_000_000_000
+
     def __init__(
         self,
         schema_name: str,
@@ -62,21 +66,112 @@ class HistoricalTimescaleBatch(ABC):
             interval: defaultdict(set) for interval in self.intervals
         }
 
+    @staticmethod
+    def _drop_embedded_header_rows(df: pl.DataFrame) -> pl.DataFrame:
+        """Drop rows whose values are exactly the column names repeated."""
+        if df.is_empty():
+            return df
+
+        header_checks = [
+            pl.col(column).cast(pl.Utf8, strict=False).eq(pl.lit(column))
+            for column in df.columns
+        ]
+        if not header_checks:
+            return df
+
+        return (
+            df.with_columns(pl.all_horizontal(header_checks).alias("_is_embedded_header"))
+            .filter(~pl.col("_is_embedded_header"))
+            .drop("_is_embedded_header")
+        )
+
+    @classmethod
+    def _normalize_epoch_to_ms_expr(cls, column_name: str, alias: str | None = None) -> pl.Expr:
+        target_name = alias or column_name
+        return (
+            pl.when(pl.col(column_name).abs() >= cls.MICROSECOND_THRESHOLD)
+            .then((pl.col(column_name) // 1000).cast(pl.Int64))
+            .when(pl.col(column_name).abs() < cls.SECOND_THRESHOLD)
+            .then((pl.col(column_name) * 1000).cast(pl.Int64))
+            .otherwise(pl.col(column_name).cast(pl.Int64))
+            .alias(target_name)
+        )
+
     @abstractmethod
     def table_name(self, interval: str) -> str:
         raise NotImplementedError
 
     @abstractmethod
-    def aggregate_timestamps(
+    def aggregation(
         self,
         interval: str,
         timestamps: List[int],
-        historical_frames: Dict[str, pl.DataFrame],
+        minio_historical_frames: Dict[str, pl.DataFrame],
     ) -> pl.DataFrame | None:
         raise NotImplementedError
 
     def normalize_historical_frame(self, source_name: str, df: pl.DataFrame) -> pl.DataFrame:
         return df
+
+    def derivative(
+        self,
+        combined_df: pl.DataFrame,
+    ) -> pl.DataFrame:
+        return combined_df
+
+    def log_return(
+        self,
+        combined_df: pl.DataFrame,
+    ) -> pl.DataFrame:
+        return combined_df
+
+    def indicator(
+        self,
+        combined_df: pl.DataFrame,
+    ) -> pl.DataFrame:
+        return combined_df
+
+    def rolling(
+        self,
+        combined_df: pl.DataFrame,
+    ) -> pl.DataFrame:
+        return combined_df
+
+    def momentum(
+        self,
+        combined_df: pl.DataFrame,
+    ) -> pl.DataFrame:
+        return combined_df
+
+    def lag(
+        self,
+        combined_df: pl.DataFrame,
+    ) -> pl.DataFrame:
+        return combined_df
+
+    def combine_history(
+        self,
+        aggregated_df: pl.DataFrame,
+        timescaledb_historical_df: pl.DataFrame | None,
+    ) -> pl.DataFrame:
+        return aggregated_df
+
+    @abstractmethod
+    def feature_steps(self) -> list[tuple[str, FeatureStep]]:
+        raise NotImplementedError
+
+    def _run_feature_steps(
+        self,
+        combined_df: pl.DataFrame,
+        date_str: str,
+    ) -> pl.DataFrame | None:
+        result_df = combined_df
+        for step_name, step_fn in self.feature_steps():
+            result_df = step_fn(result_df)
+            if result_df is None or result_df.is_empty():
+                print(f"  {date_str}: {step_name} returned no rows")
+                return None
+        return result_df
 
     def close(self) -> None:
         self._ts_client.close()
@@ -132,6 +227,10 @@ class HistoricalTimescaleBatch(ABC):
 
     def propagate_missing_timestamps(self) -> None:
         ordered_intervals = sorted(self.intervals, key=lambda item: INTERVAL_TO_MS[item])
+        expected_by_interval = {
+            interval: self._expected_timestamps(interval)
+            for interval in ordered_intervals
+        }
 
         for source_index, source_interval in enumerate(ordered_intervals[:-1]):
             source_missing = set()
@@ -147,6 +246,7 @@ class HistoricalTimescaleBatch(ABC):
                     self._align_boundary(ts_ms, target_ms)
                     for ts_ms in source_missing
                 }
+                affected &= expected_by_interval[target_interval]
                 self._group_by_date(target_interval, affected)
 
     def detect_all_gaps_and_propagate(self) -> Dict[str, Dict[str, set[int]]]:
@@ -168,7 +268,7 @@ class HistoricalTimescaleBatch(ABC):
 
         return self.missing_ts
 
-    def _source_path(self, source: HistoricalSource, target_date: date) -> str:
+    def _minio_source_path(self, source: HistoricalSource, target_date: date) -> str:
         if source.file_pattern == "monthly":
             period_str = target_date.strftime("%Y-%m")
         else:
@@ -181,7 +281,7 @@ class HistoricalTimescaleBatch(ABC):
         )
         return f"{source.prefix}/{filename}"
 
-    def _window_dates(self, source: HistoricalSource, current_date: date) -> list[date]:
+    def _minio_window_dates(self, source: HistoricalSource, current_date: date) -> list[date]:
         if source.file_pattern == "monthly":
             current_month = current_date.replace(day=1)
             previous_month_last_day = current_month - timedelta(days=1)
@@ -189,14 +289,20 @@ class HistoricalTimescaleBatch(ABC):
             return [previous_month, current_month]
         return [current_date - timedelta(days=1), current_date]
 
-    def _load_source_window(self, source: HistoricalSource, current_date: date) -> pl.DataFrame | None:
+    def _load_minio_source_window(
+        self,
+        source: HistoricalSource,
+        current_date: date,
+    ) -> pl.DataFrame | None:
         frames = []
 
-        for target_date in self._window_dates(source, current_date):
-            path = self._source_path(source, target_date)
+        for target_date in self._minio_window_dates(source, current_date):
+            path = self._minio_source_path(source, target_date)
             df = self._minio_client.read_parquet(path)
             if df is not None and not df.is_empty():
-                frames.append(self.normalize_historical_frame(source.name, df))
+                cleaned_df = self._drop_embedded_header_rows(df)
+                if not cleaned_df.is_empty():
+                    frames.append(self.normalize_historical_frame(source.name, cleaned_df))
 
         if not frames:
             return None
@@ -204,13 +310,74 @@ class HistoricalTimescaleBatch(ABC):
             return frames[0]
         return pl.concat(frames, how="vertical_relaxed")
 
-    def _load_historical_frames(self, current_date: date) -> Dict[str, pl.DataFrame]:
+    def _load_historical_minio(self, current_date: date) -> Dict[str, pl.DataFrame]:
         frames: Dict[str, pl.DataFrame] = {}
         for source in self.historical_sources:
-            df = self._load_source_window(source, current_date)
+            df = self._load_minio_source_window(source, current_date)
             if df is not None and not df.is_empty():
                 frames[source.name] = df
         return frames
+
+    def _load_historical_timescaledb(
+        self,
+        table_name: str,
+        current_time: datetime,
+        schema_name: str | None = None,
+        time_column: str | None = None,
+        historical_rows: int = 60,
+    ) -> pl.DataFrame | None:
+        schema = schema_name or self.schema_name
+        column = time_column or self.time_column
+        full_table_name = f"{schema}.{table_name}"
+        current_dt = (
+            current_time.replace(tzinfo=timezone.utc)
+            if current_time.tzinfo is None
+            else current_time.astimezone(timezone.utc)
+        )
+
+        query = (
+            f'SELECT * FROM {full_table_name} '
+            f'WHERE "{column}" < %s '
+            f'ORDER BY "{column}" DESC '
+            f"LIMIT %s"
+        )
+
+        with self._ts_client.conn.cursor() as cur:
+            cur.execute(query, (current_dt, historical_rows))
+            data = cur.fetchall()
+            if not data:
+                return None
+            columns = [desc[0] for desc in cur.description]
+
+        df = pl.DataFrame(
+            data,
+            schema=columns,
+            orient="row",
+        )
+        return self._normalize_timescaledb_datetime_columns(df).sort(column)
+
+    @staticmethod
+    def _normalize_timescaledb_datetime_columns(df: pl.DataFrame) -> pl.DataFrame:
+        if df.is_empty():
+            return df
+
+        datetime_columns = [
+            column_name
+            for column_name, dtype in zip(df.columns, df.dtypes)
+            if str(dtype).startswith("Datetime")
+        ]
+        if not datetime_columns:
+            return df
+
+        return df.with_columns(
+            [
+                pl.when(pl.col(column_name).is_not_null())
+                .then(pl.col(column_name).dt.replace_time_zone("UTC"))
+                .otherwise(None)
+                .alias(column_name)
+                for column_name in datetime_columns
+            ]
+        )
 
     def fill_gaps(self) -> None:
         print(f"{'=' * 60}")
@@ -226,16 +393,46 @@ class HistoricalTimescaleBatch(ABC):
             for date_str in sorted(date_groups.keys()):
                 current_date = datetime.strptime(date_str, "%Y-%m-%d").date()
                 timestamps = sorted(date_groups[date_str])
-                historical_frames = self._load_historical_frames(current_date)
+                minio_historical_frames = self._load_historical_minio(current_date)
 
-                if not historical_frames:
+                if not minio_historical_frames:
                     print(f"  {date_str}: no historical parquet found")
                     continue
 
-                result_df = self.aggregate_timestamps(interval, timestamps, historical_frames)
-                if result_df is None or result_df.is_empty():
+                aggregated_df = self.aggregation(
+                    interval,
+                    timestamps,
+                    minio_historical_frames,
+                )
+                if aggregated_df is None or aggregated_df.is_empty():
                     print(f"  {date_str}: aggregation returned no rows")
                     continue
+
+                current_time = aggregated_df[self.time_column].min()
+                if current_time is None:
+                    print(f"  {date_str}: missing {self.time_column} after aggregation")
+                    continue
+
+                timescaledb_historical_df = self._load_historical_timescaledb(
+                    table_name=self.table_name(interval),
+                    current_time=current_time,
+                    schema_name=self.schema_name,
+                    time_column=self.time_column,
+                )
+
+                combined_df = self.combine_history(
+                    aggregated_df,
+                    timescaledb_historical_df,
+                )
+                result_df = self._run_feature_steps(combined_df, date_str)
+                if result_df is None:
+                    continue
+
+                batch_time_values = aggregated_df[self.time_column].to_list()
+                result_df = (
+                    result_df.filter(pl.col(self.time_column).is_in(batch_time_values))
+                    .sort(self.time_column)
+                )
 
                 rows = self._ts_client.upsert_dataframe(
                     result_df,

@@ -107,7 +107,7 @@ class BinanceFuturesMetrics(RestAPI):
                     'taker_volume': taker_volume
                 }
                 
-                if any(combined_data.values()):
+                if all(combined_data.values()):
                     yield combined_data
                 break
                 
@@ -146,32 +146,62 @@ class BinanceFuturesMetrics(RestAPI):
         api4_dict = {item.get('timestamp'): item for item in api4_list} if api4_list else {}
         api5_dict = {item.get('timestamp'): item for item in api5_list} if api5_list else {}
         
-        # Get all unique timestamps
-        all_timestamps = set(api1_dict.keys()) | set(api2_dict.keys()) | set(api3_dict.keys()) | set(api4_dict.keys()) | set(api5_dict.keys())
+        # Only keep timestamps that exist in all 5 API responses.
+        all_timestamps = (
+            set(api1_dict.keys())
+            & set(api2_dict.keys())
+            & set(api3_dict.keys())
+            & set(api4_dict.keys())
+            & set(api5_dict.keys())
+        )
         
         transformed_records = []
         for timestamp in sorted(all_timestamps):
             if timestamp is None:
                 continue
                 
-            api1 = api1_dict.get(timestamp, {})
-            api2 = api2_dict.get(timestamp, {})
-            api3 = api3_dict.get(timestamp, {})
-            api4 = api4_dict.get(timestamp, {})
-            api5 = api5_dict.get(timestamp, {})
+            api1 = api1_dict.get(timestamp)
+            api2 = api2_dict.get(timestamp)
+            api3 = api3_dict.get(timestamp)
+            api4 = api4_dict.get(timestamp)
+            api5 = api5_dict.get(timestamp)
+
+            if not all([api1, api2, api3, api4, api5]):
+                continue
+
+            required_checks = [
+                (api1, ['sumOpenInterest', 'sumOpenInterestValue'], 'open_interest'),
+                (api2, ['longShortRatio'], 'top_accounts_ratio'),
+                (api3, ['longShortRatio'], 'top_positions_ratio'),
+                (api4, ['longShortRatio'], 'global_ratio'),
+                (api5, ['buySellRatio'], 'taker_volume'),
+            ]
+            missing_required = False
+            for payload, required_fields, payload_name in required_checks:
+                missing_fields = [field for field in required_fields if field not in payload]
+                if missing_fields:
+                    print(f"Skipping timestamp {timestamp}: {payload_name} missing {missing_fields}")
+                    missing_required = True
+                    break
+
+            if missing_required:
+                continue
             
             record = {
                 "create_time": int(timestamp) if timestamp else None,
                 "symbol": self.symbol,
-                "sum_open_interest": float(api1.get('sumOpenInterest', 0)),
-                "sum_open_interest_value": float(api1.get('sumOpenInterestValue', 0)),
-                "count_toptrader_long_short_ratio": float(api2.get('longShortRatio', 0)),
-                "sum_toptrader_long_short_ratio": float(api3.get('longShortRatio', 0)),
-                "count_long_short_ratio": float(api4.get('longShortRatio', 0)),
-                "sum_taker_long_short_vol_ratio": float(api5.get('buySellRatio', 0)),
+                "sum_open_interest": float(api1['sumOpenInterest']),
+                "sum_open_interest_value": float(api1['sumOpenInterestValue']),
+                "count_toptrader_long_short_ratio": float(api2['longShortRatio']),
+                "sum_toptrader_long_short_ratio": float(api3['longShortRatio']),
+                "count_long_short_ratio": float(api4['longShortRatio']),
+                "sum_taker_long_short_vol_ratio": float(api5['buySellRatio']),
             }
             transformed_records.append(record)
-        
+
+        if not transformed_records:
+            return pl.DataFrame()
+
         df = pl.DataFrame(transformed_records)
         df = df.with_columns(
             pl.from_epoch(pl.col('create_time'), time_unit='ms')

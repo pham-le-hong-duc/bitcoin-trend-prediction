@@ -16,6 +16,23 @@ services:
       - ../src:/app/src
     restart: unless-stopped
 
+  streaming-consumer-timescaledb-featurestore:
+    image: thesis-pipeline:latest
+    container_name: "streaming.consumer.timescaledb.featurestore"
+    command: python -m src.streaming.consumer.timescaledb.featurestore.run
+    environment:
+      PYTHONUNBUFFERED: 1
+      PYTHONPATH: /app
+      TZ: UTC
+      TIMESCALE_HOST: timescaledb
+      TIMESCALE_PORT: 5432
+      TIMESCALE_DB: base
+      TIMESCALE_USER: admin
+      TIMESCALE_PASSWORD: password
+    volumes:
+      - ../src:/app/src
+    restart: unless-stopped
+
 networks:
   default:
     name: streaming

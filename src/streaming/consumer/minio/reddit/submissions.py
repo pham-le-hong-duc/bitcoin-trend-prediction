@@ -2,7 +2,7 @@
 Reddit Submissions Consumer
 Kafka -> MinIO (Batch mode for medium volume)
 """
-from src.streaming.consumer.minio.consumer import Consumer
+from src.streaming.consumer.minio.base import Consumer
 
 
 def main():
@@ -28,7 +28,7 @@ def main():
             "sentiment",
         ],
         bootstrap_servers="redpanda:9092",
-        batch_size=12,
+        batch_size=128,
         batch_timeout=1,
         enable_batching=True,
         timestamp_unit="s",

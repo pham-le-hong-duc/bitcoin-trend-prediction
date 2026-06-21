@@ -2,7 +2,7 @@
 Binance Futures Funding Rate Consumer
 Kafka → MinIO (Instant mode for ultra-low volume)
 """
-from src.streaming.consumer.minio.consumer import Consumer
+from src.streaming.consumer.minio.base import Consumer
 
 
 def main():

@@ -5,7 +5,7 @@ import re
 
 import polars as pl
 
-from src.batch.timescaledb.base import HistoricalSource, HistoricalTimescaleBatch, INTERVAL_TO_MS
+from .base import HistoricalSource, HistoricalTimescaleBatch, INTERVAL_TO_MS
 
 
 class FuturesMetricsBatch(HistoricalTimescaleBatch):
@@ -98,6 +98,8 @@ class FuturesMetricsBatch(HistoricalTimescaleBatch):
             )
         else:
             df = df.with_columns(pl.col("create_time").cast(pl.Int64))
+
+        df = df.with_columns(self._normalize_epoch_to_ms_expr("create_time"))
 
         value_expressions = []
         for column in self.VALUE_COLUMNS:

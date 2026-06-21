@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from src.model.base import RedditZstFilter
+from base import RedditZstFilter
 
 
 DATA_DIR = Path(__file__).resolve().parent / "reddit" / "submissions"

@@ -5,10 +5,10 @@ import re
 
 import polars as pl
 
-from src.batch.timescaledb.base import HistoricalSource, HistoricalTimescaleBatch, INTERVAL_TO_MS
+from .base import HistoricalSource, HistoricalTimescaleBatch, INTERVAL_TO_MS
 
 
-class FuturesIndexPriceKlinesBatch(HistoricalTimescaleBatch):
+class FuturesKlinesBatch(HistoricalTimescaleBatch):
     DUPLICATED_SUFFIX_PATTERN = re.compile(r"_duplicated_\d+$")
     KLINE_COLUMNS = [
         "open_time",
@@ -44,8 +44,8 @@ class FuturesIndexPriceKlinesBatch(HistoricalTimescaleBatch):
             intervals=["1m", "5m", "15m", "1h", "4h", "1d"],
             historical_sources=[
                 HistoricalSource(
-                    name="index_price_klines",
-                    prefix="futures/um/daily/indexPriceKlines/BTCUSDT/1m",
+                    name="futures_klines",
+                    prefix="futures/um/daily/klines/BTCUSDT/1m",
                 )
             ],
             base_start_date=datetime(2020, 1, 1, tzinfo=timezone.utc),
@@ -53,7 +53,7 @@ class FuturesIndexPriceKlinesBatch(HistoricalTimescaleBatch):
         )
 
     def table_name(self, interval: str) -> str:
-        return f"futures_index_price_klines_{interval}"
+        return f"futures_klines_{interval}"
 
     def _align_boundary(self, ts_ms: int, interval_ms: int) -> int:
         # For open_time-keyed buckets, a raw 1m candle at 10:04 belongs to the
@@ -102,13 +102,25 @@ class FuturesIndexPriceKlinesBatch(HistoricalTimescaleBatch):
                 )
             df = self._recover_headerless_df(df)
 
-        return df.with_columns(
-            [
-                pl.col("open_time").cast(pl.Int64),
-                pl.col("close_time").cast(pl.Int64),
-                pl.col("count").cast(pl.Int64),
-                *[pl.col(column).cast(pl.Float64, strict=False) for column in self.FLOAT_COLUMNS],
-            ]
+        return (
+            df.with_columns(
+                [
+                    pl.col("open_time").cast(pl.Int64, strict=False),
+                    pl.col("close_time").cast(pl.Int64, strict=False),
+                    pl.col("count").cast(pl.Int64, strict=False),
+                    *[pl.col(column).cast(pl.Float64, strict=False) for column in self.FLOAT_COLUMNS],
+                ]
+            )
+            .with_columns(
+                [
+                    self._normalize_epoch_to_ms_expr("open_time"),
+                    self._normalize_epoch_to_ms_expr("close_time"),
+                ]
+            )
+            .filter(
+                pl.col("open_time").is_not_null()
+                & pl.col("close_time").is_not_null()
+            )
         )
 
     def normalize_historical_frame(self, source_name: str, df: pl.DataFrame) -> pl.DataFrame:
@@ -120,7 +132,7 @@ class FuturesIndexPriceKlinesBatch(HistoricalTimescaleBatch):
         timestamps: list[int],
         historical_frames: dict[str, pl.DataFrame],
     ) -> pl.DataFrame | None:
-        df = self._normalize_historical_df(historical_frames["index_price_klines"])
+        df = self._normalize_historical_df(historical_frames["futures_klines"])
         if df.is_empty():
             return None
 
@@ -167,7 +179,7 @@ class FuturesIndexPriceKlinesBatch(HistoricalTimescaleBatch):
 
 
 def main() -> None:
-    batch = FuturesIndexPriceKlinesBatch()
+    batch = FuturesKlinesBatch()
     try:
         batch.detect_all_gaps_and_propagate()
         batch.fill_gaps()

@@ -32,6 +32,8 @@ logger = logging.getLogger(__name__)
 
 class Consumer:
     """Base class for realtime TimescaleDB aggregation consumers."""
+    SECOND_THRESHOLD = 100_000_000_000
+    MICROSECOND_THRESHOLD = 10_000_000_000_000
 
     def __init__(
         self,
@@ -117,6 +119,30 @@ class Consumer:
 
     def _default_minio_prefix(self):
         return self.data_type
+
+    @classmethod
+    def _normalize_epoch_to_ms_expr(cls, column_name, alias=None):
+        target_name = alias or column_name
+        return (
+            pl.when(pl.col(column_name).abs() >= cls.MICROSECOND_THRESHOLD)
+            .then((pl.col(column_name) // 1000).cast(pl.Int64))
+            .when(pl.col(column_name).abs() < cls.SECOND_THRESHOLD)
+            .then((pl.col(column_name) * 1000).cast(pl.Int64))
+            .otherwise(pl.col(column_name).cast(pl.Int64))
+            .alias(target_name)
+        )
+
+    @classmethod
+    def _normalize_epoch_value_to_ms(cls, value):
+        if value is None:
+            return None
+        normalized = int(value)
+        abs_value = abs(normalized)
+        if abs_value >= cls.MICROSECOND_THRESHOLD:
+            return normalized // 1000
+        if abs_value < cls.SECOND_THRESHOLD:
+            return normalized * 1000
+        return normalized
 
     def _parse_interval_to_ms(self, interval):
         unit = interval[-1].lower()
@@ -319,6 +345,13 @@ class Consumer:
         """Hook for subclasses to delay aggregation until external conditions are met."""
         return True
 
+    def boundary_ready_ts(self, max_ts):
+        """
+        Hook for subclasses that can safely advance boundaries based on external
+        control signals instead of only raw event timestamps.
+        """
+        return max_ts
+
     def should_evaluate_boundaries_without_new_records(self):
         """Hook for subclasses that can be triggered by control/status topics."""
         return False
@@ -386,12 +419,13 @@ class Consumer:
                     continue
 
                 max_ts = self.df_historical[self.timestamp_field].max()
-                if max_ts < self.next_boundary:
+                ready_ts = self.boundary_ready_ts(max_ts)
+                if ready_ts < self.next_boundary:
                     if polled_any_records:
                         self.consumer.commit()
                     continue
 
-                while max_ts >= self.next_boundary:
+                while ready_ts >= self.next_boundary:
                     if not self.can_process_boundary(self.next_boundary, max_ts):
                         break
                     for interval in self.intervals:
@@ -446,6 +480,7 @@ class Consumer:
 
                     self.on_boundary_processed(self.next_boundary)
                     self.next_boundary += self.base_boundary_ms
+                    ready_ts = self.boundary_ready_ts(max_ts)
 
                 self._trim_historical_to_active_windows()
 

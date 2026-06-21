@@ -190,7 +190,24 @@ def transform_metrics(api1, api2, api3, api4, api5):
             count_long_short_ratio, sum_taker_long_short_vol_ratio
     """
     try:
-        timestamp = api1['timestamp'] if api1 and 'timestamp' in api1 else None
+        required_checks = [
+            (api1, ['timestamp', 'sumOpenInterest', 'sumOpenInterestValue'], 'open_interest'),
+            (api2, ['longShortRatio'], 'top_trader_accounts'),
+            (api3, ['longShortRatio'], 'top_trader_positions'),
+            (api4, ['longShortRatio'], 'global_long_short'),
+            (api5, ['buySellRatio'], 'taker_buy_sell'),
+        ]
+
+        for payload, required_fields, payload_name in required_checks:
+            if not payload:
+                logger.warning(f"Missing payload: {payload_name}")
+                return None
+            missing_fields = [field for field in required_fields if field not in payload]
+            if missing_fields:
+                logger.warning(f"Missing fields in {payload_name}: {missing_fields}")
+                return None
+
+        timestamp = api1['timestamp']
         
         # Convert Unix timestamp to datetime string (match CSV format: "2026-02-22 00:05:00")
         if timestamp:
@@ -202,12 +219,12 @@ def transform_metrics(api1, api2, api3, api4, api5):
         return {
             "create_time": create_time_str,
             "symbol": SYMBOL,
-            "sum_open_interest": float(api1['sumOpenInterest']) if api1 and 'sumOpenInterest' in api1 else 0,
-            "sum_open_interest_value": float(api1['sumOpenInterestValue']) if api1 and 'sumOpenInterestValue' in api1 else 0,
-            "count_toptrader_long_short_ratio": float(api2['longShortRatio']) if api2 and 'longShortRatio' in api2 else 0,
-            "sum_toptrader_long_short_ratio": float(api3['longShortRatio']) if api3 and 'longShortRatio' in api3 else 0,
-            "count_long_short_ratio": float(api4['longShortRatio']) if api4 and 'longShortRatio' in api4 else 0,
-            "sum_taker_long_short_vol_ratio": float(api5['buySellRatio']) if api5 and 'buySellRatio' in api5 else 0,
+            "sum_open_interest": float(api1['sumOpenInterest']),
+            "sum_open_interest_value": float(api1['sumOpenInterestValue']),
+            "count_toptrader_long_short_ratio": float(api2['longShortRatio']),
+            "sum_toptrader_long_short_ratio": float(api3['longShortRatio']),
+            "count_long_short_ratio": float(api4['longShortRatio']),
+            "sum_taker_long_short_vol_ratio": float(api5['buySellRatio']),
         }
     except Exception as e:
         logger.error(f"Error transforming metrics: {e}")
@@ -249,16 +266,38 @@ async def poll_until_new_metrics(expected_time):
                 api4 = api4[0]
             if isinstance(api5, list) and api5:
                 api5 = api5[0]
-            
-            # APIs return dict, not object
-            if api1 and isinstance(api1, dict) and 'timestamp' in api1:
-                metrics_time = int(api1['timestamp'])
 
-                # Accept the first bucket that is at least as new as the one we expect.
-                if metrics_time >= expected_time:
-                    latency = (datetime.now(timezone.utc) - start_time).total_seconds()
-                    transformed = transform_metrics(api1, api2, api3, api4, api5)
-                    return transformed, request_count, latency, metrics_time
+            payloads = {
+                "open_interest": api1,
+                "top_trader_accounts": api2,
+                "top_trader_positions": api3,
+                "global_long_short": api4,
+                "taker_buy_sell": api5,
+            }
+            missing_payloads = [
+                name for name, payload in payloads.items()
+                if not isinstance(payload, dict)
+            ]
+            if missing_payloads:
+                logger.warning(
+                    f"Retrying metrics poll, missing payloads: {', '.join(missing_payloads)}"
+                )
+                await asyncio.sleep(1)
+                continue
+
+            metrics_time = int(api1['timestamp']) if 'timestamp' in api1 else None
+            if metrics_time is None or metrics_time < expected_time:
+                await asyncio.sleep(1)
+                continue
+
+            transformed = transform_metrics(api1, api2, api3, api4, api5)
+            if transformed is None:
+                logger.warning("Retrying metrics poll, payload incomplete")
+                await asyncio.sleep(1)
+                continue
+
+            latency = (datetime.now(timezone.utc) - start_time).total_seconds()
+            return transformed, request_count, latency, metrics_time
         
         except Exception as e:
             logger.error(f"Error polling metrics: {e}")

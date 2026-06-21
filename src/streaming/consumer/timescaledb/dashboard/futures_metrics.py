@@ -15,7 +15,7 @@ from typing import Any
 
 import polars as pl
 
-from src.streaming.consumer.timescaledb.consumer import Consumer
+from .base import Consumer
 
 
 class FuturesMetricsConsumer(Consumer):
@@ -125,7 +125,7 @@ class FuturesMetricsConsumer(Consumer):
             if not stripped:
                 return None
             if stripped.isdigit():
-                return int(stripped)
+                return self._normalize_epoch_value_to_ms(int(stripped))
 
             for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
                 try:
@@ -136,7 +136,7 @@ class FuturesMetricsConsumer(Consumer):
             return None
 
         if isinstance(value, (int, float)):
-            return int(value)
+            return self._normalize_epoch_value_to_ms(value)
 
         return None
 

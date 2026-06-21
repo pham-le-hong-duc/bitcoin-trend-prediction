@@ -54,26 +54,24 @@ def get_next_kline_close_time():
 
 
 def _sync_fetch_premium_index_klines():
-  """Synchronous fetch (to be run in thread)"""
+  """Synchronous fetch of the 2 most recent klines (to be run in thread)"""
   try:
     response = client.rest_api.premium_index_kline_data(
       symbol=SYMBOL,
       interval=PremiumIndexKlineDataIntervalEnum["INTERVAL_1m"].value,
-      limit=1 # Chỉ lấy 1 kline mới nhất
+      limit=2
     )
     
     data = response.data()
-    if data and len(data) > 0:
-      return data[0] # Kline mới nhất
-    return None
+    return data if data else []
     
   except Exception as e:
     logger.error(f"Error fetching klines: {e}")
-    return None
+    return []
 
 
 async def fetch_premium_index_klines():
-  """Fetch latest kline data (runs in thread to avoid blocking)"""
+  """Fetch the most recent kline data (runs in thread to avoid blocking)"""
   return await asyncio.to_thread(_sync_fetch_premium_index_klines)
 
 
@@ -108,37 +106,36 @@ def transform_kline(kline_data):
     return None
 
 
-async def poll_until_new_data(expected_open_time, poll_duration=5):
+async def poll_until_new_data(expected_open_time):
   """
   Poll API liên tục cho đến khi có kline mới
   
   Args:
     expected_open_time: Timestamp (ms) của kline cần lấy
-    poll_duration: Tối đa bao nhiêu giây để poll  
   Returns:
     tuple: (data, request_count, latency)
   """
   start_time = datetime.now(timezone.utc)
   request_count = 0
   
-  while (datetime.now(timezone.utc) - start_time).total_seconds() < poll_duration:
+  while True:
     request_count += 1
     
     try:
-      kline = await fetch_premium_index_klines()
+      klines = await fetch_premium_index_klines()
       
-      if kline:
-        kline_open_time = int(kline[0])
-        if kline_open_time == expected_open_time:
-          latency = (datetime.now(timezone.utc) - start_time).total_seconds()
-          transformed = transform_kline(kline)
-          return transformed, request_count, latency
+      if klines:
+        for kline in klines:
+          kline_open_time = int(kline[0])
+          if kline_open_time == expected_open_time:
+            latency = (datetime.now(timezone.utc) - start_time).total_seconds()
+            transformed = transform_kline(kline)
+            return transformed, request_count, latency
         
     except Exception as e:
       logger.error(f"Error in poll loop: {e}")
-
-  logger.warning(f" Timeout after {poll_duration}s, {request_count} requests")
-  return None, request_count, None
+    
+    await asyncio.sleep(1)
 
 
 async def main():
@@ -177,8 +174,7 @@ async def main():
             expected_open_time = int(open_time.timestamp() * 1000)
             
             data, requests, api_latency = await poll_until_new_data(
-                expected_open_time=expected_open_time,
-                poll_duration=5
+                expected_open_time=expected_open_time
             )
             
             if data:

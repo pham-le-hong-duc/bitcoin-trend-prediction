@@ -2,7 +2,7 @@
 Binance Futures AggTrades Consumer
 Kafka → MinIO (Batch mode for high volume)
 """
-from src.streaming.consumer.minio.consumer import Consumer
+from src.streaming.consumer.minio.base import Consumer
 
 
 def main():
