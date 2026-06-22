@@ -3,6 +3,7 @@
 from __future__ import annotations
 import asyncio
 import json
+import os
 import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -34,8 +35,7 @@ SENTIMENT_MODEL_2_DIR = MODEL_DIR / "sentiment-cryptobert"
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 BATCH_SIZE = 16
-# PROXY = "http://zvjcd_hongh:1SthAX9d@117.0.113.155:19108"
-PROXY = "http://TC13678_PwTWmX:w5geACRR__country-vn_streaming-1@193.228.193.86:11222"
+PROXY = os.getenv("REDDIT_PROXY")
 
 REDDIT_STATUS_TOPIC = "reddit-status"
 REDDIT_COMMENTS_TOPIC = "reddit-comments"

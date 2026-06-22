@@ -13,9 +13,9 @@ class MinIOWriter:
     """Helper class to write Parquet files to MinIO"""
     
     def __init__(self, 
-                 endpoint="minio:9000",
-                 access_key="admin",
-                 secret_key="password",
+                 endpoint=None,
+                 access_key=None,
+                 secret_key=None,
                  bucket="binance",
                  secure=False):
         """
@@ -28,11 +28,11 @@ class MinIOWriter:
             bucket: Bucket name (default: binance)
             secure: Use HTTPS if True
         """
-        self.endpoint = endpoint
-        self.access_key = access_key
-        self.secret_key = secret_key
+        self.endpoint = endpoint or os.getenv("MINIO_ENDPOINT", "minio:9000")
+        self.access_key = access_key or os.getenv("MINIO_ACCESS_KEY", "admin")
+        self.secret_key = secret_key or os.getenv("MINIO_SECRET_KEY", "password")
         self.bucket = bucket
-        self.secure = secure
+        self.secure = secure if secure is not None else os.getenv("MINIO_SECURE", "false").lower() == "true"
         
         # Initialize MinIO client
         self.client = Minio(

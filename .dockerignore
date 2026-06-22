@@ -1,5 +1,10 @@
 __pycache__/
 data/
 src/model/
+src/streaming/producer/reddit/cookies/
 .tmp/
 .agents/
+.git/
+docs/
+refer/
+feature engineering.xlsx

@@ -43,9 +43,9 @@ class HistoricalTimescaleBatch(ABC):
         historical_sources: List[HistoricalSource],
         base_start_date: datetime,
         minio_bucket: str = "binance",
-        minio_endpoint: str = "minio:9000",
-        minio_access_key: str = "admin",
-        minio_secret_key: str = "password",
+        minio_endpoint: str | None = None,
+        minio_access_key: str | None = None,
+        minio_secret_key: str | None = None,
         minio_secure: bool = False,
     ) -> None:
         self.schema_name = schema_name

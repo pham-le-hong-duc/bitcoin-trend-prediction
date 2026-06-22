@@ -3,3 +3,9 @@ data/
 src/model/
 .tmp/
 .agents/
+.codex/
+deploy/.env
+deploy/seed-data/
+deploy/reddit-models/
+deploy/reddit-cookies/
+refer/
