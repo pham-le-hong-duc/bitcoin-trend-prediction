@@ -56,12 +56,13 @@ class BinanceFuturesMetrics(RestAPI):
             yield bucket_ms
             bucket_ms += self.SOURCE_INTERVAL_MS
 
-    def _extract_bucket_payload(self, payload_list, target_timestamp_ms):
+    @staticmethod
+    def _extract_first_payload(payload_list):
         if not payload_list:
             return None
 
         for item in payload_list:
-            if item.get("timestamp") == target_timestamp_ms:
+            if isinstance(item, dict):
                 return item
 
         return None
@@ -75,7 +76,7 @@ class BinanceFuturesMetrics(RestAPI):
             period=OpenInterestStatisticsPeriodEnum["PERIOD_5m"].value,
             start_time=start_ms,
             end_time=end_ms,
-            limit=10,
+            limit=1,
         )
         open_interest = open_interest_response.data() if open_interest_response else []
         time.sleep(0.2)
@@ -85,7 +86,7 @@ class BinanceFuturesMetrics(RestAPI):
             period=TopTraderLongShortRatioAccountsPeriodEnum["PERIOD_5m"].value,
             start_time=start_ms,
             end_time=end_ms,
-            limit=10,
+            limit=1,
         )
         top_accounts_ratio = top_accounts_response.data() if top_accounts_response else []
         time.sleep(0.2)
@@ -95,7 +96,7 @@ class BinanceFuturesMetrics(RestAPI):
             period=TopTraderLongShortRatioPositionsPeriodEnum["PERIOD_5m"].value,
             start_time=start_ms,
             end_time=end_ms,
-            limit=10,
+            limit=1,
         )
         top_positions_ratio = top_positions_response.data() if top_positions_response else []
         time.sleep(0.2)
@@ -105,7 +106,7 @@ class BinanceFuturesMetrics(RestAPI):
             period=LongShortRatioPeriodEnum["PERIOD_5m"].value,
             start_time=start_ms,
             end_time=end_ms,
-            limit=10,
+            limit=1,
         )
         global_ratio = global_ratio_response.data() if global_ratio_response else []
         time.sleep(0.2)
@@ -115,16 +116,16 @@ class BinanceFuturesMetrics(RestAPI):
             period=TakerBuySellVolumePeriodEnum["PERIOD_5m"].value,
             start_time=start_ms,
             end_time=end_ms,
-            limit=10,
+            limit=1,
         )
         taker_volume = taker_volume_response.data() if taker_volume_response else []
 
         return {
-            "open_interest": self._extract_bucket_payload(open_interest, target_timestamp_ms),
-            "top_accounts_ratio": self._extract_bucket_payload(top_accounts_ratio, target_timestamp_ms),
-            "top_positions_ratio": self._extract_bucket_payload(top_positions_ratio, target_timestamp_ms),
-            "global_ratio": self._extract_bucket_payload(global_ratio, target_timestamp_ms),
-            "taker_volume": self._extract_bucket_payload(taker_volume, target_timestamp_ms),
+            "open_interest": self._extract_first_payload(open_interest),
+            "top_accounts_ratio": self._extract_first_payload(top_accounts_ratio),
+            "top_positions_ratio": self._extract_first_payload(top_positions_ratio),
+            "global_ratio": self._extract_first_payload(global_ratio),
+            "taker_volume": self._extract_first_payload(taker_volume),
         }
 
     def _poll_bucket_until_complete(self, target_timestamp_ms):

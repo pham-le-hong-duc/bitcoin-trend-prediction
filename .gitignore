@@ -1,6 +1,5 @@
 __pycache__/
 data/
 src/model/
-refer/
-.tmp
-.agents
+.tmp/
+.agents/
