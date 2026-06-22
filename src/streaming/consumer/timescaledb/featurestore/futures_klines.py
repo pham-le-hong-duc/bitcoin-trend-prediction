@@ -13,11 +13,14 @@ Flow:
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import logging
 import re
 
 import polars as pl
 
 from .base import Consumer
+
+logger = logging.getLogger(__name__)
 
 
 class FuturesKlinesConsumer(Consumer):
@@ -557,7 +560,7 @@ class FuturesKlinesConsumer(Consumer):
                 time_column="open_time",
             )
             if not is_valid_history:
-                print(
+                logger.warning(
                     f"Skip featurestore futures_klines {interval} @ {current_open_time}: "
                     f"{history_reason}"
                 )

@@ -13,11 +13,14 @@ Flow:
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import logging
 from typing import Any
 
 import polars as pl
 
 from .base import Consumer
+
+logger = logging.getLogger(__name__)
 
 
 class FuturesMetricsConsumer(Consumer):
@@ -330,7 +333,7 @@ class FuturesMetricsConsumer(Consumer):
                 time_column="create_time",
             )
             if not is_valid_history:
-                print(
+                logger.warning(
                     f"Skip featurestore futures_metrics {interval} @ {current_create_time}: "
                     f"{history_reason}"
                 )

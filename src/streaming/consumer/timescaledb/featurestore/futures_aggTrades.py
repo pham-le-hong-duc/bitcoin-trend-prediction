@@ -13,11 +13,14 @@ Flow:
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import logging
 import re
 
 import polars as pl
 
 from .base import Consumer
+
+logger = logging.getLogger(__name__)
 
 
 class FuturesAggTradesConsumer(Consumer):
@@ -495,7 +498,7 @@ class FuturesAggTradesConsumer(Consumer):
                 time_column="create_time",
             )
             if not is_valid_history:
-                print(
+                logger.warning(
                     f"Skip featurestore futures_aggtrades {interval} @ {current_create_time}: "
                     f"{history_reason}"
                 )
