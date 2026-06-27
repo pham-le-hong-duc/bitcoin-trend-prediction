@@ -391,24 +391,11 @@ class CookieManager:
             self.cookies[file] = cookie_str
 
         self.watchlist = {f: 100 for f in files}
-        self._reset_task = None
         logger.info(f"Loaded {len(self.watchlist)} cookies")
 
-    async def start(self):
-        self._reset_task = asyncio.create_task(self._auto_reset())
-
-    async def stop(self):
-        if self._reset_task:
-            self._reset_task.cancel()
-
-    async def _auto_reset(self):
-        while True:
-            now = datetime.now(timezone.utc)
-            seconds_passed = (now.minute % 10) * 60 + now.second
-            seconds_until_reset = 600 - seconds_passed
-            await asyncio.sleep(seconds_until_reset)
-            self.watchlist = {f: 100 for f in self.watchlist}
-            logger.info("[reddit] cookie reset")
+    def reset(self):
+        self.watchlist = {cookie_file: 100 for cookie_file in self.cookies}
+        logger.info("[reddit] cookie reset")
 
     def get_cookie(self):
         available = {f: v for f, v in self.watchlist.items() if v > 0}
@@ -1055,8 +1042,27 @@ def detect_submissions_bot(submissions):
     for idx, submission in enumerate(submissions):
         if submission.get("relevance") == 1:
             author = str(submission.get("author", ""))
-            text_parts = [submission.get("title", ""), submission.get("selftext", "")]
-            text = " ".join(part for part in text_parts if part)
+            bot_title = (
+                clean_text(
+                    submission.get("title", ""),
+                    blocked_texts=TITLE_BLOCKED_TEXTS,
+                    remove_tokens=True,
+                    lower=True,
+                )
+                if submission.get("title")
+                else ""
+            )
+            bot_selftext = (
+                clean_text(
+                    submission.get("selftext", ""),
+                    blocked_texts=SELFTEXT_BLOCKED_TEXTS,
+                    remove_tokens=True,
+                    lower=True,
+                )
+                if submission.get("selftext")
+                else ""
+            )
+            text = " ".join(part for part in [bot_title, bot_selftext] if part)
             results[idx] = 1 if author in BOT_AUTHOR_SUBMISSIONS or bool(BOT_PATTERN.search(text)) else 0
     return results
 def detect_comments_bot(comments):
@@ -1068,7 +1074,16 @@ def detect_comments_bot(comments):
     for idx, comment in enumerate(comments):
         if comment.get("relevance") == 1:
             author = str(comment.get("author", ""))
-            text = str(comment.get("body", ""))
+            text = (
+                clean_text(
+                    comment.get("body", ""),
+                    blocked_texts=BODY_BLOCKED_TEXTS,
+                    remove_tokens=True,
+                    lower=True,
+                )
+                if comment.get("body")
+                else ""
+            )
             results[idx] = 1 if author in BOT_AUTHOR_COMMENTS or bool(BOT_PATTERN.search(text)) else 0
     return results
 
@@ -1543,7 +1558,7 @@ async def fetch_comment_pipeline(client, watchlist_submission, cookie_manager):
         if not info["checked"] and info["active"]
     ]
     logger.info(f"[reddit] comments fetch start: submissions={len(submissions_to_crawl)}")
-    semaphore = asyncio.Semaphore(128)
+    semaphore = asyncio.Semaphore(64)
     tasks = [fetch_comment_task(
             client=client,
             submission_id=s_id,

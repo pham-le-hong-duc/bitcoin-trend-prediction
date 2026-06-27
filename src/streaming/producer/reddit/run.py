@@ -1,7 +1,6 @@
 """Entrypoint scaffolding for Reddit streaming producers."""
 
 from __future__ import annotations
-import asyncio
 import json
 import time
 from datetime import datetime, timezone, timedelta
@@ -74,10 +73,10 @@ def main() -> None:
     watchlist_submission = build_watchlist_submission(watchlist_subreddit)
 
     cookie_manager = CookieManager(str(COOKIE_GLOB))
-    asyncio.run(cookie_manager.start())
     
     client = httpx.AsyncClient(proxy=PROXY, timeout=30.0)
     
+    cookie_manager.reset()
     run_tracking_pipeline(
         client=client,
         watchlist_subreddit=watchlist_subreddit,
@@ -128,6 +127,7 @@ def main() -> None:
                 time.sleep(0.5)
             else:
                 time.sleep(0.01)
+        cookie_manager.reset()
         run_tracking_pipeline(
             client=client,
             watchlist_subreddit=watchlist_subreddit,

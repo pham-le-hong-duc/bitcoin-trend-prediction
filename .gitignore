@@ -1,5 +1,6 @@
 __pycache__/
 data/
 src/model/
-.tmp/
+.cloudflared/
+.log/
 .agents/

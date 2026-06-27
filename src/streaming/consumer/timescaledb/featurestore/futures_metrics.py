@@ -143,6 +143,30 @@ class FuturesMetricsConsumer(Consumer):
             aggregated_df.columns,
         )
 
+    def _fill_zero_metric_values(self, df: pl.DataFrame) -> pl.DataFrame:
+        if df.is_empty():
+            return df
+
+        return df.with_columns(
+            [
+                pl.when(pl.col(column).eq(0))
+                .then(None)
+                .otherwise(pl.col(column))
+                .alias(column)
+                for column in self.VALUE_COLUMNS
+            ]
+        ).with_columns(
+            [
+                pl.col(column).fill_null(strategy="forward").alias(column)
+                for column in self.VALUE_COLUMNS
+            ]
+        ).with_columns(
+            [
+                pl.col(column).fill_null(strategy="backward").alias(column)
+                for column in self.VALUE_COLUMNS
+            ]
+        )
+
     def log_return(self, combined_df):
         if combined_df.is_empty():
             return combined_df
@@ -253,6 +277,7 @@ class FuturesMetricsConsumer(Consumer):
             df_sorted = df_window.sort("bucket_create_time")
             if len(df_sorted) == 0:
                 return None
+            df_sorted = self._fill_zero_metric_values(df_sorted)
 
             aggregated_df = pl.DataFrame(
                 [
