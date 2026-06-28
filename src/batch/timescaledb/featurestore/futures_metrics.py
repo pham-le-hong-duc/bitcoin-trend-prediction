@@ -209,6 +209,30 @@ class FuturesMetricsBatch(HistoricalTimescaleBatch):
             .unique(subset=["create_time"], keep="last", maintain_order=True)
         )
 
+    def _fill_zero_metric_values(self, df: pl.DataFrame) -> pl.DataFrame:
+        if df.is_empty():
+            return df
+
+        return df.with_columns(
+            [
+                pl.when(pl.col(column).eq(0))
+                .then(None)
+                .otherwise(pl.col(column))
+                .alias(column)
+                for column in self.VALUE_COLUMNS
+            ]
+        ).with_columns(
+            [
+                pl.col(column).fill_null(strategy="forward").alias(column)
+                for column in self.VALUE_COLUMNS
+            ]
+        ).with_columns(
+            [
+                pl.col(column).fill_null(strategy="backward").alias(column)
+                for column in self.VALUE_COLUMNS
+            ]
+        )
+
     def log_return(self, combined_df: pl.DataFrame) -> pl.DataFrame:
         if combined_df.is_empty():
             return combined_df
@@ -336,6 +360,8 @@ class FuturesMetricsBatch(HistoricalTimescaleBatch):
 
             if window_df.is_empty():
                 continue
+
+            window_df = self._fill_zero_metric_values(window_df)
 
             rows.append(
                 {

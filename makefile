@@ -31,7 +31,7 @@ infra-up:
 	@echo "STEP 1: Starting infrastructure..."
 	@echo "========================================================="
 	docker-compose -f docker/docker-compose.infrastructure.yml up -d --force-recreate
-# 	@powershell -NoProfile -Command "& { \$$logDir = Join-Path (Get-Location) '.tmp'; \$$logFile = Join-Path \$$logDir 'cloudflared-infra.log'; New-Item -ItemType Directory -Force \$$logDir | Out-Null; if (Test-Path \$$logFile) { Remove-Item \$$logFile -Force }; Start-Process cloudflared -ArgumentList @('tunnel', '--url', '$(CLOUDFLARED_LOCAL_URL)', '--logfile', \$$logFile) -WindowStyle Hidden | Out-Null; \$$publicUrl = \$$null; \$$deadline = (Get-Date).AddSeconds(30); do { Start-Sleep -Seconds 1; if (Test-Path \$$logFile) { \$$match = Select-String -Path \$$logFile -Pattern 'https://[-a-zA-Z0-9]+\.trycloudflare\.com' | Select-Object -Last 1; if (\$$match) { \$$publicUrl = \$$match.Matches[0].Value } } } while ((-not \$$publicUrl) -and ((Get-Date) -lt \$$deadline)); if (-not \$$publicUrl) { Write-Host '[ERROR] Quick Tunnel URL not found.' -ForegroundColor Red; exit 1 }; \$$dashboardUrl = \$$publicUrl.TrimEnd('/') + '/dashboards'; Invoke-RestMethod -Method Post -Uri '$(CLOUDFLARED_WORKER_URL)' -ContentType 'application/json' -Body (@{ url = \$$dashboardUrl } | ConvertTo-Json -Compress) | Out-Null; Write-Host ('[OK] Quick Tunnel URL: ' + \$$publicUrl) -ForegroundColor Green; Write-Host ('[OK] Dashboard URL: ' + \$$dashboardUrl) -ForegroundColor Green; Write-Host ('[OK] Worker updated: $(CLOUDFLARED_WORKER_URL)') -ForegroundColor Green }"
+# 	@powershell -NoProfile -Command "& { \$$logDir = Join-Path (Get-Location) '.cloudflared'; \$$logFile = Join-Path \$$logDir 'cloudflared-infra.log'; New-Item -ItemType Directory -Force \$$logDir | Out-Null; if (Test-Path \$$logFile) { Remove-Item \$$logFile -Force }; Start-Process cloudflared -ArgumentList @('tunnel', '--url', '$(CLOUDFLARED_LOCAL_URL)', '--logfile', \$$logFile) -WindowStyle Hidden | Out-Null; \$$publicUrl = \$$null; \$$deadline = (Get-Date).AddSeconds(30); do { Start-Sleep -Seconds 1; if (Test-Path \$$logFile) { \$$match = Select-String -Path \$$logFile -Pattern 'https://[-a-zA-Z0-9]+\.trycloudflare\.com' | Select-Object -Last 1; if (\$$match) { \$$publicUrl = \$$match.Matches[0].Value } } } while ((-not \$$publicUrl) -and ((Get-Date) -lt \$$deadline)); if (-not \$$publicUrl) { Write-Host '[ERROR] Quick Tunnel URL not found.' -ForegroundColor Red; exit 1 }; \$$dashboardUrl = \$$publicUrl.TrimEnd('/') + '/dashboards'; Invoke-RestMethod -Method Post -Uri '$(CLOUDFLARED_WORKER_URL)' -ContentType 'application/json' -Body (@{ url = \$$dashboardUrl } | ConvertTo-Json -Compress) | Out-Null; Write-Host ('[OK] Quick Tunnel URL: ' + \$$publicUrl) -ForegroundColor Green; Write-Host ('[OK] Dashboard URL: ' + \$$dashboardUrl) -ForegroundColor Green; Write-Host ('[OK] Worker updated: $(CLOUDFLARED_WORKER_URL)') -ForegroundColor Green }"
 	@echo "[OK] Infrastructure started!"
 
 
@@ -68,6 +68,7 @@ consumer.timescaledb-up:
 	@echo "STEP 5: Starting TimescaleDB consumers..."
 	@echo "========================================================="
 	docker-compose -f docker/docker-compose.infrastructure.yml -f docker/docker-compose.streaming.consumer.timescaledb.yml up -d --force-recreate streaming-consumer-timescaledb-dashboard streaming-consumer-timescaledb-featurestore
+	@powershell -NoProfile -Command "Start-Sleep -Seconds 240"
 	@echo "[OK] TimescaleDB consumers started!"
 
 # Airflow TimescaleDB DAG targets
@@ -82,7 +83,8 @@ batch_timescaledb:
 up: infra-up consumer.minio-up producer-up batch_minio consumer.timescaledb-up batch_timescaledb
 
 down:
+# 	@powershell -NoProfile -Command "& { \$$timestamp = (Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmss'); \$$logDir = Join-Path (Get-Location) ('.log/' + \$$timestamp); New-Item -ItemType Directory -Force \$$logDir | Out-Null; \$$containers = @('streaming.producer.binance', 'streaming.producer.reddit', 'streaming.consumer.minio.binance', 'streaming.consumer.minio.reddit', 'streaming.consumer.timescaledb.dashboard', 'streaming.consumer.timescaledb.featurestore'); foreach (\$$container in \$$containers) { \$$exists = docker ps -a --format '{{.Names}}' | Where-Object { \$$_ -eq \$$container }; if (\$$exists) { docker logs \$$container *> (Join-Path \$$logDir (\$$container + '.log')) } }; Write-Host ('[OK] Container logs exported to ' + \$$logDir) -ForegroundColor Green }"
 	@docker-compose -f docker/docker-compose.infrastructure.yml -f docker/docker-compose.streaming.producer.yml -f docker/docker-compose.streaming.consumer.minio.yml -f docker/docker-compose.streaming.consumer.timescaledb.yml down
-# 	@powershell -NoProfile -Command "& { Get-Process cloudflared -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; if (Test-Path '.tmp') { Remove-Item '.tmp' -Recurse -Force -ErrorAction SilentlyContinue }; Write-Host '[OK] cloudflared stopped if running.' -ForegroundColor Green; Write-Host '[OK] .tmp removed if present.' -ForegroundColor Green }"
+# 	@powershell -NoProfile -Command "& { Get-Process cloudflared -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; Write-Host '[OK] cloudflared stopped if running.' -ForegroundColor Green }"
 
 start-all: build up

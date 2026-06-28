@@ -1,7 +1,6 @@
 """Entrypoint scaffolding for Reddit streaming producers."""
 
 from __future__ import annotations
-import asyncio
 import json
 import os
 import time
@@ -34,8 +33,8 @@ SENTIMENT_MODEL_1_DIR = MODEL_DIR / "sentiment-twitter-roberta-base"
 SENTIMENT_MODEL_2_DIR = MODEL_DIR / "sentiment-cryptobert"
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-BATCH_SIZE = 16
-PROXY = os.getenv("REDDIT_PROXY")
+BATCH_SIZE = int(os.getenv("REDDIT_MODEL_BATCH_SIZE", "32"))
+PROXY = os.getenv("REDDIT_PROXY") or None
 
 REDDIT_STATUS_TOPIC = "reddit-status"
 REDDIT_COMMENTS_TOPIC = "reddit-comments"
@@ -75,10 +74,9 @@ def main() -> None:
     watchlist_submission = build_watchlist_submission(watchlist_subreddit)
 
     cookie_manager = CookieManager(str(COOKIE_GLOB))
-    asyncio.run(cookie_manager.start())
-    
     client = httpx.AsyncClient(proxy=PROXY, timeout=30.0)
-    
+
+    cookie_manager.reset()
     run_tracking_pipeline(
         client=client,
         watchlist_subreddit=watchlist_subreddit,
@@ -129,6 +127,7 @@ def main() -> None:
                 time.sleep(0.5)
             else:
                 time.sleep(0.01)
+        cookie_manager.reset()
         run_tracking_pipeline(
             client=client,
             watchlist_subreddit=watchlist_subreddit,

@@ -302,6 +302,13 @@ class Consumer:
 
         raise ValueError(f"Unsupported interval: {interval}")
 
+    def _active_intervals_for_boundary(self, boundary_ts_ms):
+        return [
+            interval
+            for interval in self.intervals
+            if self._should_aggregate_interval(boundary_ts_ms, interval)
+        ]
+
     def _trim_historical_to_active_windows(self):
         """
         Keep only the data needed for the largest active aggregation window,
@@ -583,18 +590,22 @@ class Consumer:
 
                 max_ts = self.df_historical[self.timestamp_field].max()
                 ready_ts = self.boundary_ready_ts(max_ts)
-                if ready_ts < self.next_boundary:
+                active_intervals = self._active_intervals_for_boundary(self.next_boundary)
+                boundary_ready_ts = (
+                    ready_ts
+                    if active_intervals
+                    else int(datetime.now(timezone.utc).timestamp() * 1000)
+                )
+                if boundary_ready_ts < self.next_boundary:
                     if polled_any_records:
                         self.consumer.commit()
                     continue
 
-                while ready_ts >= self.next_boundary:
-                    if not self.can_process_boundary(self.next_boundary, max_ts):
+                while boundary_ready_ts >= self.next_boundary:
+                    active_intervals = self._active_intervals_for_boundary(self.next_boundary)
+                    if active_intervals and not self.can_process_boundary(self.next_boundary, max_ts):
                         break
-                    for interval in self.intervals:
-                        if not self._should_aggregate_interval(self.next_boundary, interval):
-                            continue
-
+                    for interval in active_intervals:
                         window_ts = self.next_boundary
                         try:
                             window_size_ms = self._get_window_size_ms(interval)
@@ -644,6 +655,12 @@ class Consumer:
                     self.on_boundary_processed(self.next_boundary)
                     self.next_boundary += self.base_boundary_ms
                     ready_ts = self.boundary_ready_ts(max_ts)
+                    active_intervals = self._active_intervals_for_boundary(self.next_boundary)
+                    boundary_ready_ts = (
+                        ready_ts
+                        if active_intervals
+                        else int(datetime.now(timezone.utc).timestamp() * 1000)
+                    )
 
                 self._trim_historical_to_active_windows()
 

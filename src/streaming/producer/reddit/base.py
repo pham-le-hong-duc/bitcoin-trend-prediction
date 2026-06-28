@@ -3,6 +3,7 @@ import asyncio
 import glob
 import html
 import logging
+import os
 import random
 import re
 import pickle
@@ -33,6 +34,23 @@ if not logger.handlers:
     logger.addHandler(handler)
 logger.setLevel(logging.INFO)
 logger.propagate = False
+
+
+def _env_int(name, default=0):
+    value = os.getenv(name)
+    if value is None or value == "":
+        return default
+    try:
+        return max(0, int(value))
+    except ValueError:
+        logger.warning(f"Invalid integer for {name}={value!r}; using {default}")
+        return default
+
+
+MAX_SUBMISSIONS_PER_RUN = _env_int("REDDIT_MAX_SUBMISSIONS_PER_RUN", 0)
+MAX_COMMENT_SUBMISSIONS_PER_RUN = _env_int("REDDIT_MAX_COMMENT_SUBMISSIONS_PER_RUN", 0)
+MAX_COMMENTS_PER_RUN = _env_int("REDDIT_MAX_COMMENTS_PER_RUN", 0)
+MAX_TRACKING_LOOPS_PER_RUN = _env_int("REDDIT_MAX_TRACKING_LOOPS_PER_RUN", 0)
 
 WATCHLIST_SUBREDDITS = [
     "Bitcoin",
@@ -391,24 +409,11 @@ class CookieManager:
             self.cookies[file] = cookie_str
 
         self.watchlist = {f: 100 for f in files}
-        self._reset_task = None
         logger.info(f"Loaded {len(self.watchlist)} cookies")
 
-    async def start(self):
-        self._reset_task = asyncio.create_task(self._auto_reset())
-
-    async def stop(self):
-        if self._reset_task:
-            self._reset_task.cancel()
-
-    async def _auto_reset(self):
-        while True:
-            now = datetime.now(timezone.utc)
-            seconds_passed = (now.minute % 10) * 60 + now.second
-            seconds_until_reset = 600 - seconds_passed
-            await asyncio.sleep(seconds_until_reset)
-            self.watchlist = {f: 100 for f in self.watchlist}
-            logger.info("[reddit] cookie reset")
+    def reset(self):
+        self.watchlist = {cookie_file: 100 for cookie_file in self.cookies}
+        logger.info("[reddit] cookie reset")
 
     def get_cookie(self):
         available = {f: v for f, v in self.watchlist.items() if v > 0}
@@ -425,7 +430,7 @@ class CookieManager:
 
 
 HTTP_RETRY_ATTEMPTS = 20
-HTTP_RETRY_BASE_DELAY_SECONDS = 0.1
+HTTP_RETRY_BASE_DELAY_SECONDS = 1.0
 async def fetch_submissions(
     client=None,
     subreddit=None,
@@ -1055,8 +1060,27 @@ def detect_submissions_bot(submissions):
     for idx, submission in enumerate(submissions):
         if submission.get("relevance") == 1:
             author = str(submission.get("author", ""))
-            text_parts = [submission.get("title", ""), submission.get("selftext", "")]
-            text = " ".join(part for part in text_parts if part)
+            bot_title = (
+                clean_text(
+                    submission.get("title", ""),
+                    blocked_texts=TITLE_BLOCKED_TEXTS,
+                    remove_tokens=True,
+                    lower=True,
+                )
+                if submission.get("title")
+                else ""
+            )
+            bot_selftext = (
+                clean_text(
+                    submission.get("selftext", ""),
+                    blocked_texts=SELFTEXT_BLOCKED_TEXTS,
+                    remove_tokens=True,
+                    lower=True,
+                )
+                if submission.get("selftext")
+                else ""
+            )
+            text = " ".join(part for part in [bot_title, bot_selftext] if part)
             results[idx] = 1 if author in BOT_AUTHOR_SUBMISSIONS or bool(BOT_PATTERN.search(text)) else 0
     return results
 def detect_comments_bot(comments):
@@ -1068,7 +1092,16 @@ def detect_comments_bot(comments):
     for idx, comment in enumerate(comments):
         if comment.get("relevance") == 1:
             author = str(comment.get("author", ""))
-            text = str(comment.get("body", ""))
+            text = (
+                clean_text(
+                    comment.get("body", ""),
+                    blocked_texts=BODY_BLOCKED_TEXTS,
+                    remove_tokens=True,
+                    lower=True,
+                )
+                if comment.get("body")
+                else ""
+            )
             results[idx] = 1 if author in BOT_AUTHOR_COMMENTS or bool(BOT_PATTERN.search(text)) else 0
     return results
 
@@ -1094,7 +1127,7 @@ def detect_submissions_sentiment(
     w_crypto = torch.tensor([0.42, 0.40, 0.62], device=device)
 
     for idx, submission in enumerate(submissions):
-        if submission.get("bot") == 0:
+        if submission.get("relevance") == 1 and submission.get("bot") == 0:
             title = submission.get("title")
             selftext = submission.get("selftext")
             sentiment_title = clean_text(title, blocked_texts=TITLE_BLOCKED_TEXTS) if title else ""
@@ -1167,7 +1200,7 @@ def detect_comments_sentiment(
     w_crypto = torch.tensor([0.42, 0.40, 0.62], device=device)
 
     for idx, comment in enumerate(comments):
-        if comment.get("bot") == 0:
+        if comment.get("relevance") == 1 and comment.get("bot") == 0:
             body = comment.get("body")
             text_sentiment = clean_text(body, blocked_texts=BODY_BLOCKED_TEXTS) if body else ""
             if text_sentiment:
@@ -1364,6 +1397,13 @@ async def fetch_submission_pipeline(client, watchlist_subreddit, watchlist_submi
     for sub_list in results:
         if isinstance(sub_list, list):
             submissions.extend(sub_list)
+    if MAX_SUBMISSIONS_PER_RUN and len(submissions) > MAX_SUBMISSIONS_PER_RUN:
+        submissions.sort(key=lambda item: item.get("created_utc") or 0, reverse=True)
+        logger.info(
+            f"[reddit] submissions fetch capped: {len(submissions)} -> "
+            f"{MAX_SUBMISSIONS_PER_RUN}"
+        )
+        submissions = submissions[:MAX_SUBMISSIONS_PER_RUN]
     logger.info(f"[reddit] submissions fetch done: {len(submissions)}")
     return submissions
 
@@ -1542,8 +1582,18 @@ async def fetch_comment_pipeline(client, watchlist_submission, cookie_manager):
         s_id for s_id, info in watchlist_submission.items()
         if not info["checked"] and info["active"]
     ]
+    submissions_to_crawl.sort(
+        key=lambda s_id: max(watchlist_submission[s_id].get("list_active_time") or [0]),
+        reverse=True,
+    )
+    if MAX_COMMENT_SUBMISSIONS_PER_RUN and len(submissions_to_crawl) > MAX_COMMENT_SUBMISSIONS_PER_RUN:
+        logger.info(
+            f"[reddit] comments fetch capped submissions: {len(submissions_to_crawl)} -> "
+            f"{MAX_COMMENT_SUBMISSIONS_PER_RUN}"
+        )
+        submissions_to_crawl = submissions_to_crawl[:MAX_COMMENT_SUBMISSIONS_PER_RUN]
     logger.info(f"[reddit] comments fetch start: submissions={len(submissions_to_crawl)}")
-    semaphore = asyncio.Semaphore(128)
+    semaphore = asyncio.Semaphore(8)
     tasks = [fetch_comment_task(
             client=client,
             submission_id=s_id,
@@ -1555,6 +1605,10 @@ async def fetch_comment_pipeline(client, watchlist_submission, cookie_manager):
     all_comments = []
     for comment_list in results:
         all_comments.extend(comment_list)
+    if MAX_COMMENTS_PER_RUN and len(all_comments) > MAX_COMMENTS_PER_RUN:
+        all_comments.sort(key=lambda item: item.get("created_utc") or 0, reverse=True)
+        logger.info(f"[reddit] comments fetch capped: {len(all_comments)} -> {MAX_COMMENTS_PER_RUN}")
+        all_comments = all_comments[:MAX_COMMENTS_PER_RUN]
     logger.info(f"[reddit] comments fetch done: {len(all_comments)}")
     return all_comments
 
@@ -1660,6 +1714,11 @@ def run_tracking_pipeline(
  
     while (is_sub_remained or is_post_remained) and cookie_manager.status() > 0: 
         loop_idx += 1
+        if MAX_TRACKING_LOOPS_PER_RUN and loop_idx > MAX_TRACKING_LOOPS_PER_RUN:
+            logger.info(
+                f"[reddit] run tracking loop cap reached: {MAX_TRACKING_LOOPS_PER_RUN}"
+            )
+            break
         logger.info(f"[reddit] run tracking loop: {loop_idx}")
         submissions = asyncio.run(fetch_submission_pipeline(client, watchlist_subreddit, watchlist_submission, cookie_manager, first_run))    
         process_submissions_pipeline(

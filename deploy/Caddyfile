@@ -2,7 +2,7 @@
 	email {$ACME_EMAIL}
 }
 
-{$GRAFANA_DOMAIN} {
+{$PUBLIC_DOMAIN} {
 	encode zstd gzip
 	reverse_proxy grafana:3000
 }

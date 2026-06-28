@@ -157,13 +157,12 @@ services:
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
-      GF_SERVER_ROOT_URL: https://${GRAFANA_DOMAIN}
+      GF_SERVER_ROOT_URL: https://${PUBLIC_DOMAIN}
       GF_INSTALL_PLUGINS: magnesium-wordcloud-panel
     volumes:
       - grafana-data:/var/lib/grafana
-      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
-      - ../src/dashboard/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
-      - ../src/dashboard/dashboards:/var/lib/grafana/dashboards:ro
+      - ../refer/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../refer/grafana/dashboards:/var/lib/grafana/dashboards:ro
     depends_on:
       timescaledb:
         condition: service_healthy
@@ -315,10 +314,15 @@ services:
       <<: *pipeline-env
       PYTHONPATH: /app
       BOOTSTRAP_SERVERS: redpanda:9092
-      REDDIT_PROXY: ${REDDIT_PROXY}
+      REDDIT_PROXY: ${REDDIT_PROXY:-}
+      REDDIT_MODEL_BATCH_SIZE: ${REDDIT_MODEL_BATCH_SIZE:-32}
+      REDDIT_MAX_SUBMISSIONS_PER_RUN: ${REDDIT_MAX_SUBMISSIONS_PER_RUN:-50}
+      REDDIT_MAX_COMMENT_SUBMISSIONS_PER_RUN: ${REDDIT_MAX_COMMENT_SUBMISSIONS_PER_RUN:-20}
+      REDDIT_MAX_COMMENTS_PER_RUN: ${REDDIT_MAX_COMMENTS_PER_RUN:-1000}
+      REDDIT_MAX_TRACKING_LOOPS_PER_RUN: ${REDDIT_MAX_TRACKING_LOOPS_PER_RUN:-1}
     volumes:
-      - ./reddit-models:/app/src/model:ro
-      - ./reddit-cookies:/app/src/streaming/producer/reddit/cookies:ro
+      - ${REDDIT_MODEL_DIR}:/app/src/model:ro
+      - ${REDDIT_COOKIES_DIR}:/app/src/streaming/producer/reddit/cookies:ro
     depends_on:
       redpanda-init:
         condition: service_completed_successfully
@@ -330,7 +334,7 @@ services:
     env_file:
       - .env
     volumes:
-      - ./seed-data:/seed-data:ro
+      - ${SEED_DATA_DIR}:/seed-data:ro
     entrypoint:
       - /bin/sh
       - -c

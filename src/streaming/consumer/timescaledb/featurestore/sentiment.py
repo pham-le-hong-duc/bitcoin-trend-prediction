@@ -71,7 +71,11 @@ class SentimentConsumer(Consumer):
             if timestamp_utc is None:
                 return None
 
-            boundary_ts_ms = int(timestamp_utc) * 1000
+            timestamp_ms = int(timestamp_utc) * 1000
+            boundary_ts_ms = (
+                (timestamp_ms + self.base_boundary_ms - 1)
+                // self.base_boundary_ms
+            ) * self.base_boundary_ms
             self.pending_status_boundaries.add(boundary_ts_ms)
             return None
 
@@ -105,7 +109,15 @@ class SentimentConsumer(Consumer):
     def should_evaluate_boundaries_without_new_records(self):
         return bool(self.pending_status_boundaries)
 
+    def _boundary_requires_status(self, boundary_ts_ms):
+        return any(
+            self._should_aggregate_interval(boundary_ts_ms, interval)
+            for interval in self.intervals
+        )
+
     def can_process_boundary(self, boundary_ts_ms, max_ts):
+        if not self._boundary_requires_status(boundary_ts_ms):
+            return True
         return boundary_ts_ms in self.pending_status_boundaries
 
     def boundary_ready_ts(self, max_ts):
